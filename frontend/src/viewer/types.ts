@@ -72,4 +72,5 @@ export interface BabylonViewerCtx {
   effectiveDiagonal: number;
   roomBounds: RoomBounds;
   walkPath: Vector3[] | null;
+  shellTextured: boolean;
 }

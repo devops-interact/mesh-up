@@ -250,9 +250,10 @@ class JobManager:
 
         try:
             import asyncio
-            asyncio.run(self._recover_meshy_errored_jobs())
-        except Exception as e:
-            logger.warning("Meshy error-job recovery failed: %s", e)
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._recover_meshy_errored_jobs())
+        except RuntimeError:
+            pass
 
     async def _recover_meshy_errored_jobs(self) -> None:
         """Finalize ERROR jobs whose Meshy task completed after our poll timed out."""

@@ -33,7 +33,8 @@ from services.meshy.mesh_quality import mesh_passes_quality_gate
 from services.meshy.meshy_params import meshy_task_kwargs
 from services.meshy.person_filter import person_flags_by_index
 from services.meshy.room_shell import create_room_shell, estimate_room_envelope
-from services.meshy.scene_compose import compose_radius_from_bbox, compose_zone_transforms_for_ids
+from services.meshy.scene_compose import compose_zone_transforms_for_ids
+from utils.cpu_executor import run_cpu_bound
 from services.meshy.storage_upload import publish_keyframes
 from services.meshy.zone_normalize import (
     aggregate_bbox,
@@ -265,12 +266,16 @@ async def process_room_job(job: Job) -> Job:
         if not frame_paths:
             raise ValueError(f"No frames found in {frames_dir}")
 
-        yaw_by_index, used_uniform = estimate_yaw_by_index(
+        yaw_by_index, used_uniform = await run_cpu_bound(
+            estimate_yaw_by_index,
             frame_paths,
             fps=preset_config.fps,
             allow_uniform_fallback=False,
             is_portrait=is_portrait,
         )
+        job.progress = 0.14
+        await job_manager.update_job(job)
+
         yaw_by_index = maybe_apply_frame_index_yaw_fallback(
             yaw_by_index,
             len(frame_paths),
@@ -286,16 +291,29 @@ async def process_room_job(job: Job) -> Job:
         coverage = measure_yaw_coverage(yaw_by_index, n_zones)
         coverage_span = float(coverage["span_deg"])
 
+        job.progress = 0.16
+        await job_manager.update_job(job)
+
         sharpness_by_index = {i: laplacian_sharpness(p) for i, p in enumerate(frame_paths)}
-        architecture_by_index = architecture_scores_by_index(frame_paths, is_portrait=is_portrait)
+        architecture_by_index = await run_cpu_bound(
+            architecture_scores_by_index,
+            frame_paths,
+            is_portrait=is_portrait,
+        )
+        job.progress = 0.18
+        await job_manager.update_job(job)
+
         person_by_index = None
         if preset_config.exclude_person_frames:
-            person_by_index = person_flags_by_index(
+            person_by_index = await run_cpu_bound(
+                person_flags_by_index,
                 frame_paths,
                 hit_threshold=preset_config.person_hog_hit_threshold,
                 min_confidence=preset_config.person_min_confidence,
                 is_portrait=is_portrait,
             )
+        job.progress = 0.20
+        await job_manager.update_job(job)
 
         zones = select_zone_keyframes(
             frame_paths,
@@ -350,8 +368,9 @@ async def process_room_job(job: Job) -> Job:
 
         flat_paths = list(frame_paths)
         shell_path = None
+        shell_textured = False
         if preset_config.room_shell_enabled:
-            shell_path = create_room_shell(
+            shell_path, shell_textured = create_room_shell(
                 job.job_id,
                 settings.MODELS_DIR,
                 flat_paths,
@@ -474,14 +493,10 @@ async def process_room_job(job: Job) -> Job:
         }
 
         ref_height = envelope["size_y"]
-        compose_radius = compose_radius_from_bbox(
-            agg_bbox,
-            ref_height=ref_height,
-        ) if kept_zone_ids else preset_config.zone_compose_radius
         transforms = compose_zone_transforms_for_ids(
             kept_zone_ids,
             n_zones=n_zones,
-            radius=compose_radius,
+            radius=preset_config.zone_compose_radius,
         )
 
         manifest_zones: List[ZoneMeshInfo] = []
@@ -505,6 +520,7 @@ async def process_room_job(job: Job) -> Job:
             primary_geometry=primary_geometry,
             zones=manifest_zones,
             shell_url=shell_url,
+            shell_textured=shell_textured if shell_url else False,
             walk_path=walk_path,
             zone_errors=zone_errors or None,
             zone_count=len(manifest_zones),

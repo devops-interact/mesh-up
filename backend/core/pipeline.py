@@ -22,6 +22,7 @@ from services.meshy.keyframe_selector import (
 from services.meshy.meshy_params import meshy_task_kwargs
 from services.meshy.person_filter import person_flags_by_index
 from services.meshy.storage_upload import publish_keyframes
+from utils.cpu_executor import run_cpu_bound
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -233,13 +234,18 @@ async def process_single_object_job(job: Job) -> Job:
     if not frame_paths:
         raise ValueError(f"No frames found in {frames_dir}")
 
-    yaw_by_index, _ = estimate_yaw_by_index(
-        frame_paths, fps=preset_config.fps, allow_uniform_fallback=True, is_portrait=is_portrait,
+    yaw_by_index, _ = await run_cpu_bound(
+        estimate_yaw_by_index,
+        frame_paths,
+        fps=preset_config.fps,
+        allow_uniform_fallback=True,
+        is_portrait=is_portrait,
     )
     sharpness_by_index = {i: laplacian_sharpness(p) for i, p in enumerate(frame_paths)}
     person_by_index = None
     if preset_config.exclude_person_frames:
-        person_by_index = person_flags_by_index(
+        person_by_index = await run_cpu_bound(
+            person_flags_by_index,
             frame_paths,
             hit_threshold=preset_config.person_hog_hit_threshold,
             min_confidence=preset_config.person_min_confidence,

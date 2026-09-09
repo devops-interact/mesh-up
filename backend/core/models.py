@@ -75,6 +75,7 @@ class SceneManifest(BaseModel):
     primary_geometry: str = "zones"
     zones: List[ZoneMeshInfo] = Field(default_factory=list)
     shell_url: Optional[str] = None
+    shell_textured: bool = False
     walk_path: Optional[List[List[float]]] = None
     zone_errors: Optional[Dict[str, str]] = None
     zone_count: Optional[int] = None

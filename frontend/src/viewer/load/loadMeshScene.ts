@@ -177,6 +177,7 @@ export interface ZoneMeshHandle {
 }
 
 export const SHELL_VISIBILITY = 0.3;
+export const SHELL_VISIBILITY_TEXTURED = 0.65;
 export const ZONE_DETAIL_VISIBILITY = 1.0;
 
 export function isRoomManifest(
@@ -191,16 +192,18 @@ async function loadRoomShell(
   roomRoot: import('@babylonjs/core').TransformNode,
   shellUrl: string,
   apiBase: string,
+  shellTextured: boolean = false,
 ): Promise<AbstractMesh[]> {
   const shellBuf = await fetchModelBuffer(glbModelUrl(shellUrl, apiBase));
   const shellNode = new (await import('@babylonjs/core')).TransformNode('room_shell_root', scene);
   shellNode.parent = roomRoot;
   const { allMeshes: shellMeshes } = await importGlbBuffer(scene, shellBuf, 'room_shell');
+  const shellVisibility = shellTextured ? SHELL_VISIBILITY_TEXTURED : SHELL_VISIBILITY;
   const shellGeometry: AbstractMesh[] = [];
   for (const gm of shellMeshes) {
     gm.parent = shellNode;
     gm.isPickable = true;
-    gm.visibility = SHELL_VISIBILITY;
+    gm.visibility = shellVisibility;
     if (gm.material && 'backFaceCulling' in gm.material) {
       (gm.material as import('@babylonjs/core').Material).backFaceCulling = false;
     }
@@ -294,7 +297,13 @@ export async function importComposedScene(
   let shellGeometry: AbstractMesh[] = [];
   if (manifest.shell_url) {
     try {
-      shellGeometry = await loadRoomShell(scene, roomRoot, manifest.shell_url, apiBase);
+      shellGeometry = await loadRoomShell(
+        scene,
+        roomRoot,
+        manifest.shell_url,
+        apiBase,
+        manifest.shell_textured ?? false,
+      );
     } catch (e) {
       console.warn('[Babylon] Room shell load failed:', e);
     }

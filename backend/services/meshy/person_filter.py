@@ -81,10 +81,14 @@ def person_flags_by_index(
 ) -> dict[int, bool]:
     """Map frame index → True when a person is detected in that frame."""
     crop_ratio = _PORTRAIT_CENTER_CROP_RATIO if is_portrait else _CENTER_CROP_RATIO
-    flags: dict[int, bool] = {}
+    sample_stride = 3 if len(frame_paths) > 80 else 1
+    sampled: dict[int, bool] = {}
+
     for index, path in enumerate(frame_paths):
+        if index % sample_stride != 0:
+            continue
         try:
-            flags[index] = person_detected(
+            sampled[index] = person_detected(
                 path,
                 hit_threshold=hit_threshold,
                 min_confidence=min_confidence,
@@ -92,7 +96,16 @@ def person_flags_by_index(
             )
         except Exception as exc:
             logger.warning("Person detection failed for frame %s: %s", path, exc)
-            flags[index] = False
+            sampled[index] = False
+
+    if not sampled:
+        return {i: False for i in range(len(frame_paths))}
+
+    flags: dict[int, bool] = {}
+    sample_indices = sorted(sampled.keys())
+    for index in range(len(frame_paths)):
+        nearest = min(sample_indices, key=lambda i: abs(i - index))
+        flags[index] = sampled[nearest]
     return flags
 
 

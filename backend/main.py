@@ -1,6 +1,7 @@
 """
 FastAPI entrypoint for MESH-UP (Meshy + Railway)
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -38,11 +39,20 @@ CORS_ALLOW_HEADERS_VALUE = ", ".join(CORS_ALLOW_HEADERS)
 from database import init_db
 init_db()
 
-# Resolve jobs left in-flight by a previous crash/restart.
-from jobs.job_manager import get_job_manager
-get_job_manager().recover_stale_jobs()
 
-app = FastAPI(title=f"{BRAND_NAME} API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from jobs.job_manager import get_job_manager
+    manager = get_job_manager()
+    manager.recover_stale_jobs()
+    try:
+        await manager._recover_meshy_errored_jobs()
+    except Exception as e:
+        logger.warning("Meshy error-job recovery failed: %s", e)
+    yield
+
+
+app = FastAPI(title=f"{BRAND_NAME} API", lifespan=lifespan)
 
 # CORS middleware - allow all origins for production
 app.add_middleware(

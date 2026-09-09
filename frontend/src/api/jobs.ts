@@ -49,7 +49,7 @@ export const uploadVideo = async (
   return response.data;
 };
 
-const JOB_STATUS_TIMEOUT_MS = 15_000;
+const JOB_STATUS_TIMEOUT_MS = 30_000;
 const HEALTH_TIMEOUT_MS = 12_000;
 
 export const getJobStatus = async (

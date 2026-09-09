@@ -3,7 +3,7 @@ import type { AbstractMesh, Material, PBRMaterial } from '@babylonjs/core';
 import type { BabylonViewerCtx } from '../types';
 import type { InspectionState } from '../inspection/inspectionControls';
 import { applyLighting } from '../lighting/sceneLighting';
-import { SHELL_VISIBILITY, ZONE_DETAIL_VISIBILITY } from '../load/loadMeshScene';
+import { SHELL_VISIBILITY, SHELL_VISIBILITY_TEXTURED, ZONE_DETAIL_VISIBILITY } from '../load/loadMeshScene';
 import {
   applyMeasureGeometryView,
   isMeasureGeometryViewActive,
@@ -132,7 +132,8 @@ export function applySceneState(ctx: BabylonViewerCtx, state: SceneViewState): v
   for (const mesh of shellMeshes) {
     mesh.setEnabled(inspection.showShell);
     if (inspection.showShell) {
-      mesh.visibility = measureGeometry ? MEASURE_BASE_VISIBILITY : SHELL_VISIBILITY;
+      const shellVis = ctx.shellTextured ? SHELL_VISIBILITY_TEXTURED : SHELL_VISIBILITY;
+      mesh.visibility = measureGeometry ? MEASURE_BASE_VISIBILITY : shellVis;
     }
   }
 

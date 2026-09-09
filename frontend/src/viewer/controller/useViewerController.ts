@@ -73,15 +73,16 @@ export function useViewerController(opts: UseViewerControllerOptions) {
     const ctx = viewerRef.current;
     const hasZones = (sceneManifest?.zones?.length ?? 0) > 0;
     if (sceneManifest?.shell_url) {
+      const isRoomShell = sceneManifest.composition_mode === 'room_shell';
       setInspection((prev) => ({
         ...prev,
-        showShell: ctx && shouldAutoShowShell(ctx) ? true : !hasZones,
+        showShell: isRoomShell ? true : (ctx && shouldAutoShowShell(ctx) ? true : !hasZones),
         showZoneDetail: true,
       }));
     } else if (ctx && shouldAutoShowShell(ctx)) {
       setInspection((prev) => ({ ...prev, showShell: true }));
     }
-  }, [sceneManifest?.shell_url, sceneManifest?.zones?.length, loadPhase, viewerRef]);
+  }, [sceneManifest?.shell_url, sceneManifest?.composition_mode, sceneManifest?.zones?.length, loadPhase, viewerRef]);
 
   useEffect(() => {
     if (mode === 'measure') {

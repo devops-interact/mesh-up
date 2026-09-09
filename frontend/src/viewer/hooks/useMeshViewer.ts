@@ -155,6 +155,7 @@ export function useMeshViewer({
         diagonal: 2,
       },
       walkPath: null,
+      shellTextured: false,
     };
 
     (async () => {
@@ -305,13 +306,16 @@ export function useMeshViewer({
           effectiveDiagonal,
           roomBounds,
           walkPath: walkPath && walkPath.length > 0 ? walkPath : null,
+          shellTextured: sceneManifest?.shell_textured ?? false,
         };
 
         applySceneState(viewerRef.current, {
           inspection: {
             ...DEFAULT_INSPECTION,
             showZoneDetail: true,
-            showShell: shellMeshes.length > 0,
+            showShell:
+              shellMeshes.length > 0 &&
+              (sceneManifest?.composition_mode === 'room_shell' || shellMeshes.length > 0),
           },
           visibleZones: new Set(zoneMeshes.map((z) => z.zoneId)),
         });

@@ -28,6 +28,7 @@ function makeCtx(scene: Scene): BabylonViewerCtx {
       diagonal: 4,
     },
     walkPath: null,
+    shellTextured: false,
   };
 }
 

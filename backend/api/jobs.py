@@ -278,6 +278,7 @@ async def get_job_status(job_id: str, request: Request):
                 for z in sm.zones
             ],
             "shell_url": sm.shell_url,
+            "shell_textured": sm.shell_textured,
             "primary_geometry": sm.primary_geometry,
             "walk_path": sm.walk_path,
             "zone_errors": sm.zone_errors,
@@ -315,6 +316,7 @@ async def get_scene_manifest(job_id: str):
             for z in sm.zones
         ],
         "shell_url": sm.shell_url,
+        "shell_textured": sm.shell_textured,
         "walk_path": sm.walk_path,
         "zone_errors": sm.zone_errors,
         "zone_count": sm.zone_count,

@@ -60,7 +60,7 @@ def test_shell_first_completes_with_zero_zone_meshes(tmp_path) -> None:
         patch("core.pipeline_room.person_flags_by_index", return_value={}),
         patch("core.pipeline_room.select_zone_keyframes", return_value=zones),
         patch("core.pipeline_room.publish_keyframes", side_effect=lambda jid, paths, zone_id=0: [f"url-{zone_id}-{i}" for i in range(len(paths))]),
-        patch("core.pipeline_room.create_room_shell", return_value=shell_path),
+        patch("core.pipeline_room.create_room_shell", return_value=(shell_path, False)),
         patch("core.pipeline_room._process_zone_with_retry", side_effect=failing_zone),
         patch("core.pipeline_room._extract_glb_metadata", return_value=None),
     ):
@@ -108,7 +108,7 @@ def test_partial_zone_recovery_with_shell(tmp_path) -> None:
         patch("core.pipeline_room.person_flags_by_index", return_value={}),
         patch("core.pipeline_room.select_zone_keyframes", return_value=zones),
         patch("core.pipeline_room.publish_keyframes", side_effect=lambda jid, paths, zone_id=0: [f"url-{zone_id}-{i}" for i in range(len(paths))]),
-        patch("core.pipeline_room.create_room_shell", return_value=shell_path),
+        patch("core.pipeline_room.create_room_shell", return_value=(shell_path, False)),
         patch("core.pipeline_room._process_zone_with_retry", side_effect=zone_processor),
         patch("core.pipeline_room.mesh_passes_quality_gate", return_value=True),
         patch("core.pipeline_room.normalize_zone_glbs", return_value=({}, {
@@ -134,6 +134,10 @@ def test_partial_zone_recovery_with_shell(tmp_path) -> None:
     assert result.status == JobStatus.COMPLETED
     assert result.scene_manifest.shell_url is not None
     assert len(result.scene_manifest.zones) == 2
+    for zone in result.scene_manifest.zones:
+        transform = zone.transform
+        assert transform[0][3] == 0.0
+        assert transform[2][3] == 0.0
 
 
 def test_room_preset_shell_first_config() -> None:
@@ -164,7 +168,7 @@ def test_process_room_job_passes_max_per_zone_from_preset(tmp_path) -> None:
         patch("core.pipeline_room.person_flags_by_index", return_value={}),
         patch("core.pipeline_room.select_zone_keyframes", select_mock),
         patch("core.pipeline_room.publish_keyframes", side_effect=lambda jid, paths, zone_id=0: [f"url-{zone_id}-{i}" for i in range(len(paths))]),
-        patch("core.pipeline_room.create_room_shell", return_value=shell_path),
+        patch("core.pipeline_room.create_room_shell", return_value=(shell_path, False)),
         patch("core.pipeline_room._process_zone_with_retry", side_effect=RuntimeError("stop-after-select")),
     ):
         mock_settings.MESHY_API_KEY = "test-key"
