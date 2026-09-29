@@ -12,6 +12,7 @@ import {
   applyOrbitNavigation,
   cappedOrbitRadius,
   configureWalkControls,
+  stopOrbitDrift,
   syncOrbitPanToRadius,
 } from '../camera/setupCameras';
 import { AUTO_ROTATE_ALPHA_SPEED } from '../constants';
@@ -115,9 +116,18 @@ export function useCameraMode(
 
     if (mode === 'orbit' || mode === 'measure') {
       let lastRadius = Number.NaN;
+      let buttonsDown = 0;
+      const onPointerDown = () => { buttonsDown += 1; };
+      const onPointerUp = () => { buttonsDown = Math.max(0, buttonsDown - 1); };
+      window.addEventListener('pointerdown', onPointerDown);
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
+
       const cb = () => {
         if (autoRotate && mode === 'orbit') {
           orbitCamera.alpha += AUTO_ROTATE_ALPHA_SPEED;
+        } else if (buttonsDown === 0) {
+          stopOrbitDrift(orbitCamera);
         }
         if (Math.abs(orbitCamera.radius - lastRadius) > 1e-4) {
           lastRadius = orbitCamera.radius;
@@ -125,12 +135,21 @@ export function useCameraMode(
         }
       };
       beforeRenderRef.current = cb;
-      scene.onBeforeRenderObservable.add(cb);
+      scene.onAfterRenderObservable.add(cb);
+
+      return () => {
+        window.removeEventListener('pointerdown', onPointerDown);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerUp);
+        scene.onAfterRenderObservable.removeCallback(cb);
+        beforeRenderRef.current = null;
+      };
     }
 
     return () => {
       if (beforeRenderRef.current) {
         scene.onBeforeRenderObservable.removeCallback(beforeRenderRef.current);
+        scene.onAfterRenderObservable.removeCallback(beforeRenderRef.current);
         beforeRenderRef.current = null;
       }
     };

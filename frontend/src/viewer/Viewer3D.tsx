@@ -177,6 +177,8 @@ export default function Viewer3D({
             webXrAvailable={webXrAvailable}
             webXrBusy={webXrBusy}
             hasWalkPath={controller.hasWalkPath}
+            transformMode={controller.transformMode}
+            onTransformMode={controller.handleTransformMode}
             onModeChange={controller.setMode}
             onSnapshot={handleSnapshot}
             onReset={controller.handleReset}
@@ -229,7 +231,7 @@ export default function Viewer3D({
             />
           )}
 
-          <ViewerModeHint mode={controller.mode} hasWalkPath={controller.hasWalkPath} />
+          <ViewerModeHint mode={controller.mode} hasWalkPath={controller.hasWalkPath} transformMode={controller.transformMode} />
         </>
       )}
     </div>

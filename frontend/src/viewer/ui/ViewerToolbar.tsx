@@ -4,10 +4,14 @@ import {
   Glasses,
   Info,
   MousePointer,
+  Move,
+  Rotate3d,
   RotateCcw,
   Ruler,
+  Scaling,
   X,
 } from 'lucide-react';
+import type { ModelTransformMode } from '../hooks/useModelTransform';
 import type { ViewerMode } from '../types';
 
 export interface ViewerToolbarProps {
@@ -17,6 +21,8 @@ export interface ViewerToolbarProps {
   webXrAvailable: boolean;
   webXrBusy: boolean;
   hasWalkPath?: boolean;
+  transformMode?: ModelTransformMode;
+  onTransformMode?: (mode: ModelTransformMode) => void;
   onModeChange: (mode: ViewerMode) => void;
   onSnapshot: () => void;
   onReset: () => void;
@@ -35,6 +41,8 @@ export function ViewerToolbar({
   webXrAvailable,
   webXrBusy,
   hasWalkPath = false,
+  transformMode = 'none',
+  onTransformMode,
   onModeChange,
   onSnapshot,
   onReset,
@@ -71,6 +79,14 @@ export function ViewerToolbar({
           />
         )}
         <ToolbarButton icon={<Ruler className="w-3.5 h-3.5" />} label="Measure" active={mode === 'measure'} onClick={() => onModeChange('measure')} />
+        {onTransformMode && (
+          <>
+            <div className="border-t border-white/[0.18] my-1" />
+            <ToolbarButton icon={<Move className="w-3.5 h-3.5" />} label="Move" active={transformMode === 'move'} onClick={() => onTransformMode('move')} />
+            <ToolbarButton icon={<Rotate3d className="w-3.5 h-3.5" />} label="Rotate" active={transformMode === 'rotate'} onClick={() => onTransformMode('rotate')} />
+            <ToolbarButton icon={<Scaling className="w-3.5 h-3.5" />} label="Scale" active={transformMode === 'scale'} onClick={() => onTransformMode('scale')} />
+          </>
+        )}
         {inspectionSlot}
         <div className="border-t border-white/[0.18] my-1" />
         <ToolbarButton icon={<Camera className="w-3.5 h-3.5" />} label="Snapshot" onClick={onSnapshot} />
@@ -99,6 +115,7 @@ export function ViewerToolbar({
               <button type="button" onClick={onToggleHelp} className="text-white/40 hover:text-white"><X className="w-3 h-3" /></button>
             </div>
             <HelpItem icon={<MousePointer className="w-3 h-3" />} title="Orbit">Left-drag: orbit. Right-drag / Ctrl+left-drag: pan. Scroll: zoom. Double-click a surface to move the orbit pivot.</HelpItem>
+            <HelpItem icon={<Move className="w-3 h-3" />} title="Move / Rotate / Scale">Drag the model axes. Click the button again to turn the gizmo off.</HelpItem>
             <HelpItem icon={<Footprints className="w-3 h-3" />} title="Walk-Through">Click to look. WASD moves. Space up, Shift down. Esc releases the mouse.{hasWalkPath ? ' Walk path snaps the camera to the recorded start.' : ''}</HelpItem>
             <HelpItem icon={<Ruler className="w-3 h-3" />} title="Measure">Left-drag: orbit. Left-click without dragging: place a vertex. Right-drag: pan. Scroll: zoom. Esc or Soltar releases the selection.</HelpItem>
             <HelpItem icon={<Glasses className="w-3 h-3" />} title="Inspect">Wireframe, textures, PBR, exposure, grid, zones.</HelpItem>
@@ -132,11 +149,20 @@ function HelpItem({ icon, title, children }: { icon: React.ReactNode; title: str
   );
 }
 
-export function ViewerModeHint({ mode, hasWalkPath = false }: { mode: ViewerMode; hasWalkPath?: boolean }) {
+export function ViewerModeHint({
+  mode,
+  hasWalkPath = false,
+  transformMode = 'none',
+}: {
+  mode: ViewerMode;
+  hasWalkPath?: boolean;
+  transformMode?: ModelTransformMode;
+}) {
   return (
     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-10">
       <div className="glass-panel text-white/50 text-[10px] px-3 py-1.5">
-        {mode === 'orbit' && 'Left: Orbit  |  Right / Ctrl+Left: Pan  |  Scroll: Zoom  |  Double-click: Pivot'}
+        {mode === 'orbit' && transformMode !== 'none' && 'Move / Rotate / Scale: drag the model axes'}
+        {mode === 'orbit' && transformMode === 'none' && 'Left: Orbit  |  Right / Ctrl+Left: Pan  |  Scroll: Zoom  |  Double-click: Pivot'}
         {mode === 'walkthrough' && (hasWalkPath
           ? 'Click to look  |  WASD  |  Space/Shift up/down  |  Esc releases mouse  |  Walk path start applied'
           : 'Click to look  |  WASD  |  Space/Shift up/down  |  Esc releases mouse')}

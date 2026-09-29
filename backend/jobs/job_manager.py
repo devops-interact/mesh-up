@@ -225,7 +225,12 @@ class JobManager:
                     if job.model_metadata is None:
                         try:
                             from core.pipeline import _extract_glb_metadata
-                            job.model_metadata = _extract_glb_metadata(glb_path)
+                            from services.mesh.thumbnail import ensure_glb_thumbnail, thumbnail_api_url
+
+                            thumb_url = None
+                            if ensure_glb_thumbnail(glb_path, job.job_id):
+                                thumb_url = thumbnail_api_url(job.job_id)
+                            job.model_metadata = _extract_glb_metadata(glb_path, thumbnail_url=thumb_url)
                         except Exception as e:
                             logger.warning("Metadata extraction during recovery failed: %s", e)
                     job.status = JobStatus.COMPLETED
@@ -362,7 +367,12 @@ class JobManager:
                 zip_path.unlink(missing_ok=True)
                 job.model_filename = f"{job.job_id}.glb"
                 job.model_url = f"/api/jobs/{job.job_id}/model"
-                job.model_metadata = _extract_glb_metadata(glb_path)
+                from services.mesh.thumbnail import ensure_glb_thumbnail, thumbnail_api_url
+
+                thumb_url = None
+                if ensure_glb_thumbnail(glb_path, job.job_id):
+                    thumb_url = thumbnail_api_url(job.job_id)
+                job.model_metadata = _extract_glb_metadata(glb_path, thumbnail_url=thumb_url)
                 job.status = JobStatus.COMPLETED
                 job.progress = 1.0
                 job.error_message = None

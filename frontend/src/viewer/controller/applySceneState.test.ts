@@ -168,7 +168,7 @@ describe('applySceneState', () => {
     engine.dispose();
   });
 
-  it('uses edge geometry view instead of forceWireframe in measure mode', () => {
+  it('uses the inspect wireframe for measure instead of the edge overlay', () => {
     const engine = new NullEngine();
     const scene = new Scene(engine);
     const mesh = MeshBuilder.CreateBox('measureBox', { size: 1 }, scene);
@@ -180,14 +180,14 @@ describe('applySceneState', () => {
     };
 
     applySceneState(ctx, {
-      inspection: { ...DEFAULT_INSPECTION, wireframe: true, textures: false, pbr: false },
+      inspection: { ...DEFAULT_INSPECTION, wireframe: true, textures: true, pbr: true },
       visibleZones: new Set(),
-      measureGeometry: true,
+      measureGeometry: false,
     });
 
-    expect(scene.forceWireframe).toBe(false);
-    expect(mesh._edgesRenderer?.isEnabled).toBe(true);
-    expect(mesh.visibility).toBe(0.08);
+    expect(scene.forceWireframe).toBe(true);
+    expect(mesh._edgesRenderer).toBeNull();
+    expect(mesh.visibility).toBe(1);
 
     applySceneState(ctx, {
       inspection: { ...DEFAULT_INSPECTION, wireframe: false, textures: true, pbr: true },

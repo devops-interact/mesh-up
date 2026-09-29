@@ -18,6 +18,7 @@ from services.kiri.client import (
     STATUS_QUEUED,
     extract_scan_assets,
 )
+from services.mesh.thumbnail import ensure_glb_thumbnail, thumbnail_api_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -107,7 +108,10 @@ async def _run_kiri_reconstruction(job: Job, video_path: Path, *, is_mask: bool,
     final_glb.write_bytes(extracted_glb.read_bytes())
     zip_path.unlink(missing_ok=True)
 
-    metadata = _extract_glb_metadata(final_glb)
+    thumb_url = None
+    if ensure_glb_thumbnail(final_glb, job.job_id):
+        thumb_url = thumbnail_api_url(job.job_id)
+    metadata = _extract_glb_metadata(final_glb, thumbnail_url=thumb_url)
     if metadata:
         metadata.meshy_task_id = serialize
         job.model_metadata = metadata

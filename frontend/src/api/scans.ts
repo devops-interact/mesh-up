@@ -10,6 +10,7 @@ export interface Scan {
   job_id: string | null;
   name: string;
   status: string | null;
+  thumbnail_url?: string | null;
   created_at: string;
   updated_at: string;
 }

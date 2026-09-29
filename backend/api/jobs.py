@@ -394,10 +394,27 @@ async def download_model(job_id: str):
 async def get_thumbnail(job_id: str):
     job_manager = get_job_manager()
     job = await job_manager.get_job(job_id)
-    if not job or not job.model_metadata or not job.model_metadata.thumbnail_url:
-        raise HTTPException(status_code=404, detail="Thumbnail not available")
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url=job.model_metadata.thumbnail_url)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    from services.mesh.thumbnail import ensure_glb_thumbnail, thumbnail_path_for_job
+
+    thumb_path = thumbnail_path_for_job(job_id)
+    if not thumb_path.is_file():
+        if job.status != JobStatus.COMPLETED or not job.model_filename:
+            raise HTTPException(status_code=404, detail="Thumbnail not available")
+        glb_path = settings.MODELS_DIR / job.model_filename
+        if not glb_path.is_file():
+            raise HTTPException(status_code=404, detail="Thumbnail not available")
+        if not ensure_glb_thumbnail(glb_path, job_id):
+            raise HTTPException(status_code=404, detail="Thumbnail not available")
+
+    return FileResponse(
+        path=str(thumb_path),
+        media_type="image/png",
+        filename=f"{job_id}_thumb.png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.get("/{job_id}/preview")

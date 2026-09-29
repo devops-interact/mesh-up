@@ -6,11 +6,11 @@ import type { ZoneMeshHandle } from '../load/loadMeshScene';
 import { applySceneState, resolveEffectiveVisibleZones, shouldAutoShowShell } from './applySceneState';
 import { useMeasureController } from './useMeasureController';
 import { useCameraMode, useResetView } from '../hooks/useCameraMode';
+import { useModelTransform, type ModelTransformMode } from '../hooks/useModelTransform';
 import { useWalkthroughMode } from '../hooks/useWalkthroughMode';
 import { useMeasureMode } from '../hooks/useMeasureMode';
 import { DEFAULT_INSPECTION, type InspectionState } from '../inspection/inspectionControls';
 import { MEASURE_PICK_HINT_IDLE } from '../measure/colors';
-import { MEASURE_GEOMETRY_PREPARING_HINT } from '../measure/measureGeometryView';
 import type { BabylonViewerCtx, LoadPhase, StoredCameraPose, ViewerMode } from '../types';
 
 function buildInitialInspection(): InspectionState {
@@ -47,6 +47,7 @@ export function useViewerController(opts: UseViewerControllerOptions) {
 
   const [mode, setMode] = useState<ViewerMode>('orbit');
   const [autoRotate, setAutoRotate] = useState(false);
+  const [transformMode, setTransformMode] = useState<ModelTransformMode>('none');
   const [inspection, setInspection] = useState<InspectionState>(buildInitialInspection);
   const [visibleZones, setVisibleZones] = useState<Set<number>>(() => new Set());
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,7 +87,6 @@ export function useViewerController(opts: UseViewerControllerOptions) {
 
   useEffect(() => {
     if (mode === 'measure') {
-      measure.setMeasurePickHint(MEASURE_GEOMETRY_PREPARING_HINT);
       setInspection((prev) => {
         if (!inspectionBeforeMeasureRef.current) {
           inspectionBeforeMeasureRef.current = prev;
@@ -94,8 +94,6 @@ export function useViewerController(opts: UseViewerControllerOptions) {
         return {
           ...prev,
           wireframe: true,
-          textures: false,
-          pbr: false,
         };
       });
     } else if (inspectionBeforeMeasureRef.current) {
@@ -111,17 +109,14 @@ export function useViewerController(opts: UseViewerControllerOptions) {
       applySceneState(ctx, {
         inspection,
         visibleZones: zonesForScene,
-        measureGeometry: mode === 'measure',
+        measureGeometry: false,
       });
       refreshPickableMeshes([...ctx.geometryMeshes, ...ctx.shellMeshes]);
     }
   }, [inspection, zonesForScene, loadPhase, viewerRef, mode]);
 
   const handleInspectionChange = useCallback((next: InspectionState) => {
-    const patched =
-      mode === 'measure'
-        ? { ...next, wireframe: true, textures: false, pbr: false }
-        : next;
+    const patched = mode === 'measure' ? { ...next, wireframe: true } : next;
     setInspection(patched);
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     persistTimerRef.current = setTimeout(() => {
@@ -143,6 +138,7 @@ export function useViewerController(opts: UseViewerControllerOptions) {
   useWalkthroughMode(viewerRef, canvasRef, mode, loadPhase, sceneManifest, sceneScaleRef);
 
   const resetView = useResetView(viewerRef, canvasRef, initialPoseRef);
+  const restoreMeshTransform = useModelTransform(viewerRef, canvasRef, mode, loadPhase, transformMode);
 
   useMeasureMode({
     viewerRef,
@@ -172,11 +168,18 @@ export function useViewerController(opts: UseViewerControllerOptions) {
     } catch { /* ignore */ }
   }, [mode, loadPhase, canvasRef]);
 
+  const handleTransformMode = useCallback((next: ModelTransformMode) => {
+    setTransformMode((current) => (current === next ? 'none' : next));
+    setMode('orbit');
+  }, []);
+
   const handleReset = useCallback(() => {
     setMode('orbit');
+    setTransformMode('none');
     measure.handleResetCalibration();
+    restoreMeshTransform();
     resetView();
-  }, [measure.handleResetCalibration, resetView]);
+  }, [measure.handleResetCalibration, resetView, restoreMeshTransform]);
 
   const handleWalkPathStart = useCallback(() => {
     setMode('walkthrough');
@@ -187,6 +190,8 @@ export function useViewerController(opts: UseViewerControllerOptions) {
     setMode,
     autoRotate,
     setAutoRotate,
+    transformMode,
+    handleTransformMode,
     inspection,
     visibleZones,
     handleInspectionChange,

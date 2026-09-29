@@ -6,7 +6,8 @@ import { ORBIT_BETA_MAX, ORBIT_BETA_MIN, ORBIT_MAX_DIST_MULT, ORBIT_MIN_DIST_FRA
 export const ORBIT_PAN_PIXELS_PER_RADIUS = 600;
 /** Lower than Babylon's 1000 default so a short drag turns the model. */
 export const ORBIT_ANGULAR_SENSIBILITY = 450;
-export const ORBIT_INERTIA = 0.65;
+/** No coasting: the camera stops the moment the pointer is released. */
+export const ORBIT_INERTIA = 0;
 /** Fraction of the current radius applied per wheel notch (deltaY ≈ 100). */
 export const ORBIT_WHEEL_DELTA_PERCENTAGE = 0.05;
 
@@ -47,6 +48,21 @@ export function syncOrbitPanToRadius(orbitCamera: ArcRotateCamera): void {
   orbitCamera.panningSensibility = orbitPanSensibility(orbitCamera.radius);
 }
 
+export function stopOrbitDrift(orbitCamera: ArcRotateCamera): void {
+  orbitCamera.inertialAlphaOffset = 0;
+  orbitCamera.inertialBetaOffset = 0;
+  orbitCamera.inertialRadiusOffset = 0;
+  orbitCamera.inertialPanningX = 0;
+  orbitCamera.inertialPanningY = 0;
+}
+
+export function keepOrbitFromDrifting(orbitCamera: ArcRotateCamera): void {
+  orbitCamera.useAutoRotationBehavior = false;
+  if (orbitCamera.framingBehavior) {
+    orbitCamera.framingBehavior.elevationReturnTime = -1;
+  }
+}
+
 export function applyOrbitNavigation(orbitCamera: ArcRotateCamera): void {
   orbitCamera.angularSensibilityX = ORBIT_ANGULAR_SENSIBILITY;
   orbitCamera.angularSensibilityY = ORBIT_ANGULAR_SENSIBILITY;
@@ -56,6 +72,7 @@ export function applyOrbitNavigation(orbitCamera: ArcRotateCamera): void {
   orbitCamera.panningAxis = new Vector3(1, 1, 0);
   orbitCamera.useNaturalPinchZoom = true;
   orbitCamera.zoomToMouseLocation = true;
+  keepOrbitFromDrifting(orbitCamera);
   syncOrbitPanToRadius(orbitCamera);
 }
 

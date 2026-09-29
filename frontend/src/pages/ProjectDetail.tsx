@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { listScans, deleteScan, Scan } from '@/api/scans';
 import { getProject as fetchProject, Project } from '@/api/projects';
+import ScanThumbnail from '@/components/ScanThumbnail';
 import { ArrowLeft, Plus, Scan as ScanIcon, Trash2, MoreVertical, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -59,9 +60,14 @@ export default function ProjectDetail() {
 
   const statusColor = (s: string | null) => {
     if (!s) return 'text-gray-500';
-    if (s === 'completed') return 'text-white';
+    if (s === 'completed') return 'text-emerald-400';
     if (s === 'error') return 'text-red-400';
     return 'text-amber-400';
+  };
+
+  const statusLabel = (s: string | null) => {
+    if (!s) return 'No video yet';
+    return s.replace(/_/g, ' ');
   };
 
   if (loading || !project) {
@@ -133,24 +139,31 @@ export default function ProjectDetail() {
                 transition={{ delay: i * 0.05 }}
                 className="relative rounded-xl border border-white/[0.22] bg-neutral-950 p-4 hover:border-white/[0.38] transition-colors group"
               >
+                <div className="absolute right-2 top-2 z-10">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)}
+                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] text-gray-400"
+                    aria-label="Scan options"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                </div>
                 <button
+                  type="button"
                   onClick={() => navigate(`/projects/${projectId}/scans/${s.id}`)}
                   className="block w-full text-left"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <ScanIcon className="w-8 h-8 text-white/50" />
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === s.id ? null : s.id); }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] text-gray-400"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <h3 className="font-semibold text-white mb-1">
+                  <ScanThumbnail
+                    url={s.thumbnail_url}
+                    alt={s.name || `Scan ${s.id}`}
+                    className="mb-3"
+                  />
+                  <h3 className="font-semibold text-white mb-1 pr-6">
                     {s.name || `Scan ${s.id}`}
                   </h3>
-                  <p className={`text-xs ${statusColor(s.status)}`}>
-                    {s.status || 'No video yet'}
+                  <p className={`text-xs capitalize ${statusColor(s.status)}`}>
+                    {statusLabel(s.status)}
                   </p>
                   <p className="text-gray-600 text-xs mt-1">{formatDate(s.created_at)}</p>
                 </button>

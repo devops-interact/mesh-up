@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
-from models.db_models import User, Project, Scan
+from models.db_models import User, Project, Scan, JobRecord
 from api.auth import get_current_user
-from jobs.job_manager import get_job_manager
+from jobs.job_manager import _record_to_job
+from core.models import JobStatus, Job
 
 router = APIRouter()
 
@@ -28,6 +29,7 @@ class ScanResponse(BaseModel):
     job_id: Optional[str] = None
     name: str
     status: Optional[str] = None  # from Job if job_id exists
+    thumbnail_url: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -35,16 +37,31 @@ class ScanResponse(BaseModel):
         from_attributes = True
 
 
-def _scan_to_response(s: Scan) -> ScanResponse:
+def _scan_to_response(s: Scan, job: Optional[Job] = None) -> ScanResponse:
+    status: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    if job is not None:
+        status = job.status.value
+        if job.status == JobStatus.COMPLETED and job.model_filename:
+            thumbnail_url = f"/api/jobs/{job.job_id}/thumbnail"
     return ScanResponse(
         id=s.id,
         project_id=s.project_id,
         job_id=s.job_id,
         name=s.name or "",
-        status=None,  # Frontend will poll job status separately
+        status=status,
+        thumbnail_url=thumbnail_url,
         created_at=s.created_at.isoformat(),
         updated_at=s.updated_at.isoformat(),
     )
+
+
+def _jobs_for_scans(db: Session, scans: list[Scan]) -> dict[str, Job]:
+    job_ids = [s.job_id for s in scans if s.job_id]
+    if not job_ids:
+        return {}
+    records = db.query(JobRecord).filter(JobRecord.job_id.in_(job_ids)).all()
+    return {r.job_id: _record_to_job(r) for r in records}
 
 
 def _ensure_project_access(db: Session, project_id: int, user_id: int) -> Project:
@@ -63,7 +80,8 @@ async def list_scans(
     """List all scans in a project."""
     _ensure_project_access(db, project_id, current_user.id)
     scans = db.query(Scan).filter(Scan.project_id == project_id).order_by(Scan.updated_at.desc()).all()
-    return [_scan_to_response(s) for s in scans]
+    jobs_by_id = _jobs_for_scans(db, scans)
+    return [_scan_to_response(s, jobs_by_id.get(s.job_id) if s.job_id else None) for s in scans]
 
 
 @router.post("/{project_id}/scans", response_model=ScanResponse)
@@ -97,7 +115,8 @@ async def get_scan(
     scan = db.query(Scan).filter(Scan.id == scan_id, Scan.project_id == project_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    return _scan_to_response(scan)
+    jobs_by_id = _jobs_for_scans(db, [scan])
+    return _scan_to_response(scan, jobs_by_id.get(scan.job_id) if scan.job_id else None)
 
 
 @router.put("/{project_id}/scans/{scan_id}", response_model=ScanResponse)
@@ -117,7 +136,8 @@ async def update_scan(
         scan.name = body.name
     db.commit()
     db.refresh(scan)
-    return _scan_to_response(scan)
+    jobs_by_id = _jobs_for_scans(db, [scan])
+    return _scan_to_response(scan, jobs_by_id.get(scan.job_id) if scan.job_id else None)
 
 
 @router.delete("/{project_id}/scans/{scan_id}")

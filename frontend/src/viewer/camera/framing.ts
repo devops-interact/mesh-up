@@ -2,6 +2,7 @@ import type { AbstractMesh, ArcRotateCamera } from '@babylonjs/core';
 import { FramingBehavior } from '@babylonjs/core/Behaviors/Cameras/framingBehavior';
 import { Vector3 } from '@babylonjs/core';
 import { BBOX_CAM_DIST_MIN, BBOX_CAM_DIST_MULT } from '../constants';
+import { keepOrbitFromDrifting } from './setupCameras';
 
 /**
  * Apply backend first-frame pose, then native Babylon zoomOn.
@@ -24,6 +25,7 @@ export function attachFramingBehavior(orbitCamera: ArcRotateCamera): FramingBeha
   behavior.radiusScale = 1;
   behavior.elevationReturnTime = -1;
   behavior.autoCorrectCameraLimitsAndSensibility = false;
+  keepOrbitFromDrifting(orbitCamera);
   return behavior;
 }
 
@@ -31,6 +33,7 @@ export function frameCameraOnMesh(orbitCamera: ArcRotateCamera, meshes: Abstract
   if (meshes.length === 0) return;
   orbitCamera.zoomOnFactor = 1.15;
   orbitCamera.zoomOn(meshes, false);
+  keepOrbitFromDrifting(orbitCamera);
 }
 
 export function resetViewWithFraming(
@@ -41,7 +44,9 @@ export function resetViewWithFraming(
 ): void {
   if (!rootMesh) return;
   framingBehavior.framingTime = animate ? 500 : 0;
+  framingBehavior.elevationReturnTime = -1;
   framingBehavior.zoomOnMeshHierarchy(rootMesh, false);
+  keepOrbitFromDrifting(_orbitCamera);
 }
 
 export function bboxFromMesh(mesh: AbstractMesh): {

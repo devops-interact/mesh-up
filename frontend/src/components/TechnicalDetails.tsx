@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { ModelMetadata } from './Viewer3D';
-import { getApiBaseUrl } from '@/lib/apiBase';
+import { resolveAssetUrl } from '@/lib/resolveAssetUrl';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   HardDrive,
@@ -27,12 +27,6 @@ interface TechnicalDetailsProps {
     processingTimeSeconds?: number;
   };
   embedded?: boolean;
-}
-
-function resolveAssetUrl(url: string): string {
-  if (url.startsWith('http')) return url;
-  const base = getApiBaseUrl().replace(/\/$/, '');
-  return `${base}${url.startsWith('/') ? url : `/${url}`}`;
 }
 
 function formatFileSize(bytes: number): string {
