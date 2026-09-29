@@ -11,6 +11,7 @@ export interface MeasurePanelProps {
   calibration: CalibrationState | null;
   measurePickHint: string;
   onUndo: () => void;
+  onRelease: () => void;
   onConfirmCalibration: () => void;
   onClearMeasure: () => void;
   onResetCalibration: () => void;
@@ -19,7 +20,7 @@ export interface MeasurePanelProps {
 export function MeasurePanel(props: MeasurePanelProps) {
   const {
     measurePhase, calibPoints, measurePoints, measuredDistance, meterInput, setMeterInput,
-    calibration, measurePickHint, onUndo, onConfirmCalibration, onClearMeasure, onResetCalibration,
+    calibration, measurePickHint, onUndo, onRelease, onConfirmCalibration, onClearMeasure, onResetCalibration,
   } = props;
 
   return (
@@ -45,6 +46,7 @@ export function MeasurePanel(props: MeasurePanelProps) {
                 <>
                   <div className="border-l border-white/[0.18] h-5" />
                   <button type="button" onClick={onUndo} className="flex items-center gap-1 text-white/40 hover:text-white"><RotateCcw className="w-3 h-3" /> Undo</button>
+                  <button type="button" onClick={onRelease} className="text-white/40 hover:text-white">Soltar</button>
                 </>
               )}
               {calibPoints.length === 2 && (
@@ -77,6 +79,7 @@ export function MeasurePanel(props: MeasurePanelProps) {
                 <>
                   <div className="border-l border-white/[0.18] h-5" />
                   <button type="button" onClick={onUndo} className="text-white/40 hover:text-white"><RotateCcw className="w-3 h-3" /></button>
+                  <button type="button" onClick={onRelease} className="text-white/40 hover:text-white">Soltar</button>
                   <button type="button" onClick={onClearMeasure} className="text-white/40 hover:text-white"><Trash2 className="w-3 h-3" /></button>
                 </>
               )}

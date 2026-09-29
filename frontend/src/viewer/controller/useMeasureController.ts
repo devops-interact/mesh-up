@@ -18,6 +18,7 @@ export interface MeasureControllerActions {
   setMeasurePickHint: (hint: string) => void;
   handleAddMeasurePoint: (point: Vector3) => void;
   handleUndoLastPoint: () => void;
+  handleReleaseSelection: () => void;
   handleConfirmCalibration: () => void;
   handleResetCalibration: () => void;
   handleClearMeasure: () => void;
@@ -36,14 +37,15 @@ export function useMeasureController(): MeasureControllerState & MeasureControll
     (point: Vector3) => {
       if (measurePhase === 'calibrate') {
         setCalibPoints((prev) => {
-          if (prev.length >= 2) return [{ position: point.clone() }];
+          if (prev.length >= 2) return prev;
           return [...prev, { position: point.clone() }];
         });
         return;
       }
 
       setMeasurePoints((prev) => {
-        const next = prev.length >= 2 ? [{ position: point.clone() }] : [...prev, { position: point.clone() }];
+        if (prev.length >= 2) return prev;
+        const next = [...prev, { position: point.clone() }];
         if (next.length === 2 && calibration) {
           const rawDist = Vector3.Distance(next[0].position, next[1].position);
           setMeasuredDistance(rawDist * calibration.scaleFactor);
@@ -63,6 +65,15 @@ export function useMeasureController(): MeasureControllerState & MeasureControll
       setMeasurePoints((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
       setMeasuredDistance(null);
     }
+  }, [measurePhase]);
+
+  const handleReleaseSelection = useCallback(() => {
+    if (measurePhase === 'calibrate') {
+      setCalibPoints([]);
+      return;
+    }
+    setMeasurePoints([]);
+    setMeasuredDistance(null);
   }, [measurePhase]);
 
   const handleConfirmCalibration = useCallback(() => {
@@ -102,6 +113,7 @@ export function useMeasureController(): MeasureControllerState & MeasureControll
     setMeasurePickHint,
     handleAddMeasurePoint,
     handleUndoLastPoint,
+    handleReleaseSelection,
     handleConfirmCalibration,
     handleResetCalibration,
     handleClearMeasure,

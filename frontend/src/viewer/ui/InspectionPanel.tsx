@@ -8,6 +8,7 @@ export interface InspectionPanelProps {
   open: boolean;
   onToggle: () => void;
   zoneMeshes?: ZoneMeshHandle[];
+  hasShell?: boolean;
   visibleZones?: Set<number>;
   onZoneToggle?: (zoneId: number) => void;
   compositionLabel?: string;
@@ -19,6 +20,7 @@ export function InspectionPanel({
   open,
   onToggle,
   zoneMeshes = [],
+  hasShell = false,
   visibleZones,
   onZoneToggle,
   compositionLabel,
@@ -55,7 +57,9 @@ export function InspectionPanel({
             <Toggle label="PBR materials" checked={state.pbr} onChange={(v) => patch({ pbr: v })} />
             <Toggle label="Floor grid" checked={state.showGrid} onChange={(v) => patch({ showGrid: v })} />
             <Toggle label="Axes" checked={state.showAxes} onChange={(v) => patch({ showAxes: v })} />
-            <Toggle label="Room shell" checked={state.showShell} onChange={(v) => patch({ showShell: v })} />
+            {hasShell && (
+              <Toggle label="Room shell" checked={state.showShell} onChange={(v) => patch({ showShell: v })} />
+            )}
             {zoneMeshes.length > 0 && (
               <Toggle
                 label="Furniture detail"

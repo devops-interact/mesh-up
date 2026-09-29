@@ -1,7 +1,6 @@
 """
 API endpoints for job management
 """
-import json
 import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends, Request
 from fastapi.responses import FileResponse, Response
@@ -107,7 +106,7 @@ async def upload_video(
         job.status = JobStatus.VALIDATING
         await job_manager.update_job(job)
 
-        validation_result = validate_video(video_path, extraction_fps=preset_config.fps)
+        validation_result = validate_video(video_path)
 
         upload_warnings = list(validation_result.warnings)
         if preset == QualityPreset.ROOM and validation_result.video_info:
@@ -118,8 +117,8 @@ async def upload_video(
                     "Pan slowly 360° from the center of the room with walls visible."
                 )
             upload_warnings.append(
-                "Room reconstruction requires a full interior walkthrough — "
-                "not single-object or outdoor equipment scans (use Object preset instead)."
+                "Room reconstruction needs a full interior walkthrough, up to 3 minutes. "
+                "Use the Object preset for a single subject."
             )
 
         job.validation = VideoValidation(
@@ -418,24 +417,3 @@ async def get_preview_url(job_id: str):
     }
 
 
-@router.post("/webhooks/meshy")
-async def meshy_webhook(request: Request):
-    """Meshy task completion webhook — triggers recovery for timed-out jobs."""
-    if settings.MESHY_WEBHOOK_SECRET:
-        token = request.headers.get("X-Meshy-Webhook-Secret", "")
-        if token != settings.MESHY_WEBHOOK_SECRET:
-            raise HTTPException(status_code=401, detail="Invalid webhook secret")
-    body = await request.json()
-    logger.info("Meshy webhook received: %s", json.dumps(body)[:500])
-
-    task_id = body.get("id") or body.get("task_id") or (body.get("result") or {}).get("id")
-    status = (body.get("status") or "").upper()
-    if task_id and status == "SUCCEEDED":
-        job_manager = get_job_manager()
-        try:
-            import asyncio
-            asyncio.create_task(job_manager._recover_meshy_errored_jobs())
-        except Exception as e:
-            logger.warning("Webhook recovery trigger failed: %s", e)
-
-    return {"ok": True}

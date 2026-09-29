@@ -113,7 +113,7 @@ def get_video_info(video_path: Path) -> Optional[VideoInfo]:
         return None
 
 
-def validate_video(video_path: Path, extraction_fps: float = 2.0) -> ValidationResult:
+def validate_video(video_path: Path) -> ValidationResult:
     """
     Validate a video file for 3D reconstruction
     
@@ -170,23 +170,16 @@ def validate_video(video_path: Path, extraction_fps: float = 2.0) -> ValidationR
     if video_info.duration > settings.MAX_VIDEO_DURATION:
         errors.append(
             f"Video too long: {video_info.duration:.1f}s. "
-            f"Maximum: {settings.MAX_VIDEO_DURATION}s (5 minutes)"
+            f"Maximum: {settings.MAX_VIDEO_DURATION:.0f}s (3 minutes)"
         )
     
     # Validate resolution
     min_dim = min(video_info.width, video_info.height)
-    max_dim = max(video_info.width, video_info.height)
-    
+
     if min_dim < settings.MIN_VIDEO_RESOLUTION:
         errors.append(
             f"Resolution too low: {video_info.width}x{video_info.height}. "
             f"Minimum: {settings.MIN_VIDEO_RESOLUTION}p"
-        )
-    
-    if max_dim > settings.MAX_VIDEO_RESOLUTION:
-        warnings.append(
-            f"High resolution video ({video_info.width}x{video_info.height}) "
-            f"will be downscaled for processing"
         )
     
     # Validate dimensions (must be even for video encoding)
@@ -213,20 +206,13 @@ def validate_video(video_path: Path, extraction_fps: float = 2.0) -> ValidationR
             f"Maximum: {settings.MAX_UPLOAD_SIZE / (1024*1024):.0f}MB"
         )
     
-    # Estimate processing time and frames
-    estimated_frames = int(video_info.duration * extraction_fps)
-    if estimated_frames < 10:
-        errors.append(
-            f"Not enough frames for reconstruction. "
-            f"Video would produce only {estimated_frames} frames at {extraction_fps} FPS. Minimum: 10"
+    display_w = video_info.display_width or video_info.width
+    display_h = video_info.display_height or video_info.height
+    if display_w > 1920 or display_h > 1080:
+        warnings.append(
+            f"Video is {display_w}x{display_h}. It will be scaled to 1080p before reconstruction."
         )
 
-    if estimated_frames > 500:
-        warnings.append(
-            f"Large video ({estimated_frames} frames at {extraction_fps} FPS). "
-            f"Consider using a shorter clip for faster processing."
-        )
-    
     return ValidationResult(
         valid=len(errors) == 0,
         video_info=video_info,

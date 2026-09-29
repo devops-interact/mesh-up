@@ -2,18 +2,18 @@
 
 ## Overview
 
-Web app that converts room walkthrough videos into interactive **textured 3D meshes (GLB)** using the **Meshy Multi-Image-to-3D API**. Hosted entirely on **Railway** (two services: API + frontend).
+Web app that converts a video into one measurable **textured 3D mesh (GLB)** using the **KIRI Engine 3DGS** video API (`isMesh=1`). Hosted on **Railway** (two services: API + frontend).
 
 ## Railway services
 
 ```
 ┌─────────────────────────┐     proxy /api, /static      ┌──────────────────────────┐
 │  web (frontend)         │ ────────────────────────────▶│  api (backend)           │
-│  nginx + React SPA      │     BACKEND_URL env var      │  FastAPI + FFmpeg + Meshy│
+│  nginx + React SPA      │     BACKEND_URL env var      │  FastAPI + FFmpeg + KIRI │
 │  Dockerfile.frontend.railway │                              │  Dockerfile.railway      │
 └─────────────────────────┘                              └──────────────────────────┘
          ▲                                                           │
-         │ user browser                                              │ Meshy API
+         │ user browser                                              │ KIRI API
          └───────────────────────────────────────────────────────────┘
 ```
 
@@ -24,57 +24,36 @@ Web app that converts room walkthrough videos into interactive **textured 3D mes
 
 The frontend uses **same-origin** `/api/...` calls; nginx proxies to the API service (no Vercel, no CORS setup needed).
 
-## Pipeline modes
+## Pipeline
 
-### Single-object (fast / balanced / quality)
-
-```
-Video upload → validate → FFmpeg keyframes → select 4 best frames
-→ Meshy multi-image-to-3D (color-preserving params) → download GLB → viewer
-```
-
-Typical job time: **3–22 minutes** depending on preset.
-
-### Room (beta) — Zone Mesh Composition (ZMC)
+Both presets use the same path. The only difference is KIRI `isMask`.
 
 ```
-Video → FFmpeg frames + yaw estimate → select_zone_keyframes (4 zones × 4 frames)
-→ parallel Meshy jobs (rate-limited) → zone GLBs + scene manifest
-→ optional room shell → multi-mesh Babylon viewer
+Video upload → validate (≤3 min, scale above 1080p)
+→ FFmpeg normalize (bake rotation)
+→ POST /3dgs/video (isMesh=1, fileFormat=glb)
+→ poll GET /model/getStatus
+→ GET /model/getModelZip → store GLB
+→ Babylon viewer, measure on the mesh
 ```
 
-Typical job time: **~35–45 minutes** (4 serial/parallel zone reconstructions).
+| Preset | `isMask` | What it reconstructs |
+|---|---|---|
+| quality (Object) | 1 | One subject, background cut |
+| room | 0 | The whole space |
 
-See [`docs/spike/meshy-room-workaround-no-pointcloud.md`](docs/spike/meshy-room-workaround-no-pointcloud.md) for design rationale.
+A Gaussian-splat PLY in the same zip is stored and not drawn. Measurement raycasts the GLB. Older Meshy jobs that already have a GLB stay downloadable. The zone/shell code is unused by new jobs.
+
+The KIRI serialize id is stored in the existing `meshy_task_id` column. If the API restarts after submit and before the GLB is saved, startup resumes that poll.
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | React, Vite, Babylon.js (GLB mesh viewer), nginx |
-| Backend | FastAPI, FFmpeg, httpx (Meshy client), SQLite jobs |
-| AI | Meshy API (`meshy-7` / `meshy-6`) |
+| Backend | FastAPI, FFmpeg, httpx (KIRI client), SQLite jobs |
+| Reconstruction | KIRI Engine 3DGS video (`isMesh=1`, `fileFormat=glb`) |
 | Hosting | Railway (2 services) |
-
-## Quality presets
-
-| Preset | Mode | Meshy model | Est. time | Notes |
-|---|---|---|---|---|
-| fast | single | meshy-6 | ~5 min | 30k poly, `decimation_mode` off |
-| balanced | single | meshy-7 | ~8 min | 50k poly |
-| quality | single | meshy-7 + 4k | ~22 min | `decimation_mode=1`, pre-remeshed GLB |
-| room | zone_mesh | meshy-7 + 4k | ~40 min | 4 zones, scene manifest |
-
-### Meshy parameters (color fidelity)
-
-| Parameter | Value | Purpose |
-|---|---|---|
-| `texture_image_urls` | keyframes (wall_priority in quality) | Guide textures independently of geometry |
-| `auto_size` + `origin_at: bottom` | enabled | Real-world scale, floor at Y=0 |
-| `image_enhancement` | false | Preserve video colors |
-| `remove_lighting` | false | Keep environment lighting in texture |
-| `decimation_mode` | 1 (quality) | Ultra polycount for multi-image |
-| `save_pre_remeshed_model` | true (quality) | Higher-quality GLB when available |
 
 ## API endpoints (jobs)
 
@@ -82,11 +61,10 @@ See [`docs/spike/meshy-room-workaround-no-pointcloud.md`](docs/spike/meshy-room-
 |---|---|
 | `GET /api/presets` | Preset list (single source of truth for UI) |
 | `GET /api/jobs/{id}/status` | Progress, keyframes, scene_manifest |
-| `GET /api/jobs/{id}/model` | Primary GLB (zone 0 or merged) |
-| `GET /api/jobs/{id}/scene` | Scene manifest JSON |
-| `GET /api/jobs/{id}/zones/{zone_id}` | Per-zone GLB |
-| `GET /api/jobs/{id}/shell` | Optional room shell GLB |
-| `POST /api/jobs/webhooks/meshy` | Meshy completion webhook |
+| `GET /api/jobs/{id}/model` | Scene GLB |
+| `GET /api/jobs/{id}/scene` | Scene manifest (older multi-zone jobs) |
+| `GET /api/jobs/{id}/zones/{zone_id}` | Per-zone GLB (older jobs) |
+| `GET /api/jobs/{id}/shell` | Room shell GLB (older jobs) |
 
 ## Deploy
 
@@ -102,10 +80,10 @@ railway up --service web
 
 ## Viewer features
 
-- Orbit / pan / zoom on GLB mesh (single or multi-zone composed scene)
+- Orbit / pan / zoom on the GLB mesh
 - Walkthrough (UniversalCamera + collision proxy; walk path from manifest when available)
 - Two-point calibration measurement (mesh raycast) with scale warning until calibrated
-- Per-zone visibility toggles (room mode)
+- Zone and shell toggles only when an older job still has those meshes
 - Lighting panel (ambient / directional / environment)
 - WebXR VR
 - Viewer defaults in Settings (localStorage)
@@ -123,6 +101,6 @@ railway up --service web
 }
 ```
 
-## Limits & kill criteria
+## Limits
 
-Meshy Multi-Image-to-3D assumes **1 object, 1–4 views** per job. Room mode composes multiple jobs; seams may be visible. If coverage <40% or seams >30 cm after tuning, consider external splat alternatives (documented in spike).
+KIRI accepts a display resolution up to 1920×1080 and a duration up to 3 minutes. One credit per scan. The zip download URL expires after 60 minutes, so the worker downloads it in the same process that sees status `2`.

@@ -17,6 +17,8 @@ import { storeCameraPose } from '../camera/poseStorage';
 import {
   applyOrbitZoomLimitsFromDiagonal,
   setupCamerasFromPose,
+  syncOrbitPanToRadius,
+  walkSpeedForDiagonal,
 } from '../camera/setupCameras';
 import { parseViewerSceneScale, modelFetchAbortSignal } from '../constants';
 import {
@@ -122,8 +124,8 @@ export function useMeshViewer({
       [0, 1, 0],
       provisionalWalk,
     );
-    walkCamera.checkCollisions = true;
-    walkCamera.applyGravity = true;
+    walkCamera.checkCollisions = false;
+    walkCamera.applyGravity = false;
     walkCamera.ellipsoid = new Vector3(0.25, 0.9, 0.25);
 
     const framingBehavior = attachFramingBehavior(orbitCamera);
@@ -251,6 +253,7 @@ export function useMeshViewer({
         const boundsMeshes = [...geometryMeshes, ...shellMeshes];
         const roomBounds = computeRoomBounds(boundsMeshes.length > 0 ? boundsMeshes : [rootMesh]);
         const collisionMesh = createCollisionProxyFromBounds(scene, roomBounds);
+        collisionMesh.checkCollisions = false;
 
         const meshBbox = {
           min: [roomBounds.min.x, roomBounds.min.y, roomBounds.min.z] as [number, number, number],
@@ -268,8 +271,10 @@ export function useMeshViewer({
         const ellipsoidH = Math.max(0.15, effectiveDiagonal * 0.04);
         walkCamera.ellipsoid = new Vector3(ellipsoidH * 0.28, ellipsoidH, ellipsoidH * 0.28);
         worldUnitRef.current = Math.min(0.12, Math.max(0.008, effectiveDiagonal * 0.004));
-        walkSpeedRef.current = Math.min(20, Math.max(1, effectiveDiagonal * 0.5));
+        walkSpeedRef.current = walkSpeedForDiagonal(effectiveDiagonal);
         walkCamera.speed = walkSpeedRef.current;
+        walkCamera.checkCollisions = false;
+        walkCamera.applyGravity = false;
         applyOrbitZoomLimitsFromDiagonal(orbitCamera, effectiveDiagonal);
 
         modelMeta = {
@@ -288,6 +293,7 @@ export function useMeshViewer({
               ? geometryMeshes
               : [rootMesh];
         frameCameraOnMesh(orbitCamera, frameTargets);
+        syncOrbitPanToRadius(orbitCamera);
         initialPoseRef.current = storeCameraPose(orbitCamera);
 
         viewerRef.current = {

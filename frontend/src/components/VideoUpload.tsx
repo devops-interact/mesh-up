@@ -33,11 +33,32 @@ interface UploadResult {
 }
 
 function formatPresetTime(minutes: number): string {
-  if (minutes <= 5) return `~${minutes} min est.`;
   return `~${minutes} min est.`;
 }
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+
+function probeVideoFile(file: File): Promise<{ duration: number; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const info = {
+        duration: video.duration,
+        width: video.videoWidth,
+        height: video.videoHeight,
+      };
+      URL.revokeObjectURL(url);
+      resolve(info);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read video metadata'));
+    };
+    video.src = url;
+  });
+}
 
 function formatFileSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(0)}MB`;
@@ -73,14 +94,14 @@ export default function VideoUpload({
       .catch(() => {
         setPresetsWarning('Could not load presets from API — using local fallback.');
         setPresets([
-          { id: 'quality', name: 'Object — highest detail', description: 'One mesh, 4K textures. Best for a single object.', estimated_minutes: 22, composition_mode: 'single_object' },
-          { id: 'room', name: 'Room — full space', description: 'Multi-zone room reconstruction. For interior walkthroughs.', estimated_minutes: 40, composition_mode: 'zone_mesh' },
+          { id: 'quality', name: 'Object — isolated subject', description: 'One mesh of a single object. Background is masked.', estimated_minutes: 15, composition_mode: 'single_object' },
+          { id: 'room', name: 'Room — full space', description: 'One mesh of the whole space. Reconstruction can take over an hour. Video up to 3 minutes.', estimated_minutes: 60, composition_mode: 'single_object' },
         ]);
       });
   }, []);
 
   const selectedPresetInfo = presets.find((p) => p.id === selectedPreset);
-  const isSingleObject = selectedPresetInfo?.composition_mode !== 'zone_mesh';
+  const isRoom = selectedPreset === 'room' || selectedPresetInfo?.id === 'room';
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -99,8 +120,27 @@ export default function VideoUpload({
       return;
     }
 
+    const localWarnings: string[] = [];
+    try {
+      const probe = await probeVideoFile(file);
+      if (probe.duration > 180) {
+        setError(
+          `Video is ${probe.duration.toFixed(0)}s. Maximum length is 3 minutes.`,
+        );
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      if (probe.width > 1920 || probe.height > 1080) {
+        localWarnings.push(
+          `Video is ${probe.width}×${probe.height}. It will be scaled to 1080p before reconstruction.`,
+        );
+      }
+    } catch {
+      // Server validation still checks duration and resolution.
+    }
+
     setError(null);
-    setWarnings([]);
+    setWarnings(localWarnings);
     if (!jobStarted) setVideoInfo(null);
     setUploading(true);
 
@@ -158,7 +198,7 @@ export default function VideoUpload({
               ? 'border-white/48 bg-white/[0.06] text-white'
               : 'border-white/[0.22] bg-neutral-950/50 text-gray-400 hover:border-white/[0.32] hover:bg-white/[0.06]',
             uploading && 'opacity-50 cursor-not-allowed',
-            preset.composition_mode === 'zone_mesh' && 'ring-1 ring-emerald-500/20',
+            preset.id === 'room' && 'ring-1 ring-emerald-500/20',
           )}
         >
           <div className="flex items-center justify-between w-full mb-1">
@@ -171,9 +211,9 @@ export default function VideoUpload({
           <p className="text-[10px] opacity-60 leading-tight">{preset.description}</p>
           <span className={cn(
             'mt-1 text-[9px] uppercase tracking-wide',
-            preset.composition_mode === 'zone_mesh' ? 'text-emerald-400/90' : 'text-white/35',
+            preset.id === 'room' ? 'text-emerald-400/90' : 'text-white/35',
           )}>
-            {preset.composition_mode === 'zone_mesh' ? 'Full room · multi-zone' : 'Single object'}
+            {preset.id === 'room' ? 'Full room · one mesh' : 'Single object'}
           </span>
         </button>
       ))}
@@ -260,15 +300,16 @@ export default function VideoUpload({
                 <li>30+ seconds — slow 360° pan from room center, or walk a full loop with walls in frame</li>
                 <li>Walls and floor visible throughout</li>
                 <li>Works in horizontal and vertical — keep the phone steady while panning 360°</li>
-                <li>Builds a textured room envelope (walls/floor) plus optional furniture detail meshes</li>
-                <li>Keep yourself out of frame — the scanner ignores people and focuses on the space</li>
+                <li>Up to 3 minutes. Frames are scaled to 720p and 15 fps before upload.</li>
+                <li>A full room can take over an hour. Do not upload the video again while it is running.</li>
+                <li>One mesh of the whole space, ready to measure in the viewer</li>
                 <li>Not for single objects or outdoor equipment — use Object preset</li>
               </ul>
             </div>
           )}
-          {isSingleObject && selectedPreset === 'quality' && (
+          {!isRoom && selectedPreset === 'quality' && (
             <p className="text-xs text-emerald-400/70 border border-emerald-500/20 rounded-lg p-2.5">
-              Quality reconstructs <strong>one object</strong> only. For walls and floor, select <strong>Room — full space</strong>.
+              Object mode masks the background and reconstructs <strong>one subject</strong>. For walls and floor, select <strong>Room — full space</strong>.
             </p>
           )}
         </div>

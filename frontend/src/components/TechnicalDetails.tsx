@@ -109,7 +109,7 @@ export default function TechnicalDetails({ metadata, jobInfo, embedded }: Techni
             {jobInfo?.meshyTaskId && (
               <DetailRow
                 icon={<Link2 className="w-3.5 h-3.5" />}
-                label="Meshy Task"
+                label="Scan ID"
                 value={<span className="font-mono text-[10px]">{jobInfo.meshyTaskId.slice(0, 12)}…</span>}
               />
             )}
@@ -117,7 +117,7 @@ export default function TechnicalDetails({ metadata, jobInfo, embedded }: Techni
               <DetailRow
                 icon={<Image className="w-3.5 h-3.5" />}
                 label="Thumbnail"
-                value={<img src={resolveAssetUrl(jobInfo.thumbnailUrl)} alt="Meshy preview" className="w-8 h-8 rounded object-cover" />}
+                value={<img src={resolveAssetUrl(jobInfo.thumbnailUrl)} alt="Scan preview" className="w-8 h-8 rounded object-cover" />}
               />
             )}
             <DetailRow icon={<Layers className="w-3.5 h-3.5" />} label="Vertices" value={details.vertexCount} />

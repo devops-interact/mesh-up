@@ -10,7 +10,7 @@ from enum import Enum
 
 
 class QualityPreset(str, Enum):
-    """Quality presets for Meshy image-to-3D reconstruction"""
+    """Scan presets. Both reconstruct one mesh; they differ only by KIRI masking."""
     QUALITY = "quality"
     ROOM = "room"
 
@@ -31,88 +31,27 @@ def resolve_quality_preset(value: Optional[str]) -> QualityPreset:
         return LEGACY_PRESET_ALIASES.get(value, QualityPreset.QUALITY)
 
 
-class MeshyPresetConfig(BaseModel):
-    """Meshy API parameters for a quality preset"""
+class ScanPresetConfig(BaseModel):
+    """UI and pipeline settings for one scan preset."""
     name: str
     description: str
-    fps: float
     estimated_minutes: int
-    ai_model: str = "meshy-7"
-    should_texture: bool = True
-    enable_pbr: bool = True
-    texture_resolution: str = "2k"
-    target_polycount: int = 50_000
-    should_remesh: bool = False
-    max_keyframes: int = 4
-    meshy_timeout_s: float = 600.0
-    # Color / fidelity
-    texture_image_urls_mode: Literal["same", "wall_priority"] = "same"
-    image_enhancement: bool = False
-    remove_lighting: bool = False
-    auto_size: bool = True
-    origin_at: str = "bottom"
-    decimation_mode: Optional[int] = None
-    save_pre_remeshed_model: bool = True
-    multi_view_thumbnails: bool = False
-    # Room composition (preset room only)
-    n_zones: int = 4
     composition_mode: Literal["single_object", "zone_mesh", "room_shell"] = "single_object"
-    room_shell_enabled: bool = False
-    room_shell_required: bool = False
-    zone_mesh_max_retries: int = 2
-    min_architecture_score: float = 0.15
-    room_orbit_radius_m: float = 2.5
-    room_default_height_m: float = 2.7
-    zone_compose_radius: float = 0.0
-    # Keyframe filtering — exclude frames with detected people (walkthrough operator)
-    exclude_person_frames: bool = True
-    person_hog_hit_threshold: float = 0.0
-    person_min_confidence: float = 0.5
+    kiri_object_mask: bool = False
 
 
-QUALITY_PRESETS: Dict[QualityPreset, MeshyPresetConfig] = {
-    QualityPreset.QUALITY: MeshyPresetConfig(
-        name="Object — highest detail",
-        description="Single mesh from 4 views (~15–25 min). Best for one object, not full rooms.",
-        fps=1.0,
-        estimated_minutes=22,
-        ai_model="meshy-7",
-        enable_pbr=True,
-        texture_resolution="4k",
-        target_polycount=100_000,
-        meshy_timeout_s=1800.0,
-        texture_image_urls_mode="wall_priority",
-        image_enhancement=False,
-        decimation_mode=1,
-        save_pre_remeshed_model=True,
-        auto_size=True,
-        exclude_person_frames=True,
+QUALITY_PRESETS: Dict[QualityPreset, ScanPresetConfig] = {
+    QualityPreset.QUALITY: ScanPresetConfig(
+        name="Object — isolated subject",
+        description="One mesh of a single object. KIRI masks the background. Up to 3 minutes.",
+        estimated_minutes=15,
+        kiri_object_mask=True,
     ),
-    QualityPreset.ROOM: MeshyPresetConfig(
+    QualityPreset.ROOM: ScanPresetConfig(
         name="Room — full space",
-        description="Textured room envelope from walkthrough video (~35–45 min). Optional detail meshes for furniture.",
-        fps=2.0,
-        estimated_minutes=40,
-        ai_model="meshy-7",
-        enable_pbr=True,
-        texture_resolution="4k",
-        target_polycount=80_000,
-        max_keyframes=4,
-        meshy_timeout_s=1800.0,
-        texture_image_urls_mode="same",
-        image_enhancement=False,
-        decimation_mode=1,
-        save_pre_remeshed_model=True,
-        auto_size=False,
-        n_zones=4,
-        composition_mode="zone_mesh",
-        room_shell_enabled=True,
-        room_shell_required=False,
-        zone_mesh_max_retries=2,
-        min_architecture_score=0.28,
-        zone_compose_radius=0.0,
-        multi_view_thumbnails=True,
-        exclude_person_frames=True,
+        description="One mesh of the whole space. Reconstruction can take over an hour. Video up to 3 minutes.",
+        estimated_minutes=60,
+        kiri_object_mask=False,
     ),
 }
 
@@ -130,9 +69,8 @@ class Settings(BaseSettings):
 
     # Video validation settings
     MIN_VIDEO_DURATION: float = 3.0
-    MAX_VIDEO_DURATION: float = 300.0
+    MAX_VIDEO_DURATION: float = 180.0
     MIN_VIDEO_RESOLUTION: int = 480
-    MAX_VIDEO_RESOLUTION: int = 4096
 
     # Database (SQLite in storage dir)
     DATABASE_URL: str = ""
@@ -146,23 +84,15 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024
     ALLOWED_EXTENSIONS: List[str] = [".mp4", ".mov", ".avi", ".webm"]
 
-    # Meshy API
-    MESHY_API_KEY: str = ""
-    MESHY_POLL_INTERVAL_S: float = 5.0
-    MESHY_TIMEOUT_S: float = 600.0
-    MESHY_WEBHOOK_SECRET: str = ""
-    MESHY_MAX_PARALLEL_JOBS: int = 3
-
-    # Public base URL for keyframe images (Railway domain). Empty = data URIs.
-    STORAGE_PUBLIC_BASE_URL: str = ""
+    # KIRI Engine API (3DGS video → mesh)
+    KIRI_API_KEY: str = ""
+    KIRI_POLL_INTERVAL_S: float = 8.0
+    KIRI_TIMEOUT_S: float = 21600.0
+    KIRI_MAX_PARALLEL_JOBS: int = 2
 
     class Config:
         env_file = ".env"
         case_sensitive = True
-
-
-def get_preset_config(preset: QualityPreset) -> MeshyPresetConfig:
-    return QUALITY_PRESETS[preset]
 
 
 @lru_cache()

@@ -192,6 +192,7 @@ export default function Viewer3D({
                 open={showInspection}
                 onToggle={() => setShowInspection((v) => !v)}
                 zoneMeshes={zoneMeshes}
+                hasShell={hasShell}
                 visibleZones={controller.visibleZones}
                 onZoneToggle={controller.handleZoneToggle}
                 compositionLabel={compositionLabel}
@@ -221,6 +222,7 @@ export default function Viewer3D({
               calibration={controller.measure.calibration}
               measurePickHint={controller.measure.measurePickHint}
               onUndo={controller.measure.handleUndoLastPoint}
+              onRelease={controller.measure.handleReleaseSelection}
               onConfirmCalibration={controller.measure.handleConfirmCalibration}
               onClearMeasure={controller.measure.handleClearMeasure}
               onResetCalibration={controller.measure.handleResetCalibration}

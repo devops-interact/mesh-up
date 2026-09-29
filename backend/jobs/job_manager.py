@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.models import Job, JobStatus, VideoValidation, ModelMetadata, KeyframeInfo, SceneManifest
-from core.config import get_settings, QualityPreset, resolve_quality_preset
+from core.config import get_settings, resolve_quality_preset
 import database
 from models.db_models import JobRecord
 
@@ -231,6 +231,14 @@ class JobManager:
                     job.status = JobStatus.COMPLETED
                     job.progress = 1.0
                     logger.info("Recovered job %s: GLB exists — finalized as completed", job.job_id)
+                elif job.meshy_task_id:
+                    job.status = JobStatus.RECONSTRUCTING
+                    job.error_message = None
+                    logger.info(
+                        "Recovered job %s: KIRI serialize %s — will resume polling",
+                        job.job_id,
+                        job.meshy_task_id,
+                    )
                 else:
                     last_step = job.status.value
                     job.status = JobStatus.ERROR
@@ -248,26 +256,40 @@ class JobManager:
         finally:
             db.close()
 
-        try:
-            import asyncio
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._recover_meshy_errored_jobs())
-        except RuntimeError:
-            pass
+    async def resume_kiri_jobs(self) -> None:
+        """Finish paid KIRI tasks that stopped before the GLB was saved."""
+        import asyncio
 
-    async def _recover_meshy_errored_jobs(self) -> None:
-        """Finalize ERROR jobs whose Meshy task completed after our poll timed out."""
-        from core.pipeline import finalize_meshy_result, _meshy_timeout_for_preset
-        from services.meshy.client import MeshyClient
+        from services.kiri.client import (
+            STATUS_EXPIRED,
+            STATUS_FAILED,
+            STATUS_PROCESSING,
+            STATUS_QUEUED,
+            STATUS_SUCCESS,
+            STATUS_UPLOADING,
+            KiriClient,
+        )
 
         cfg = get_settings()
-        if not cfg.MESHY_API_KEY:
+        if not cfg.KIRI_API_KEY:
             return
 
-        recovered = 0
+        client = KiriClient(
+            api_key=cfg.KIRI_API_KEY,
+            poll_interval_s=cfg.KIRI_POLL_INTERVAL_S,
+            timeout_s=cfg.KIRI_TIMEOUT_S,
+        )
+        in_progress = {STATUS_UPLOADING, STATUS_PROCESSING, STATUS_QUEUED}
+        to_poll: list[str] = []
+        to_download: list[str] = []
         db = database.SessionLocal()
         try:
-            records = db.query(JobRecord).filter(JobRecord.status == JobStatus.ERROR.value).all()
+            records = db.query(JobRecord).filter(
+                JobRecord.status.in_([
+                    JobStatus.RECONSTRUCTING.value,
+                    JobStatus.ERROR.value,
+                ]),
+            ).all()
             for record in records:
                 job = _record_to_job(record)
                 if not job.meshy_task_id:
@@ -275,38 +297,92 @@ class JobManager:
                 glb_path = cfg.MODELS_DIR / f"{job.job_id}.glb"
                 if glb_path.exists():
                     continue
-
-                preset = job.quality_preset or QualityPreset.QUALITY
-                client = MeshyClient(
-                    api_key=cfg.MESHY_API_KEY,
-                    poll_interval_s=cfg.MESHY_POLL_INTERVAL_S,
-                    timeout_s=_meshy_timeout_for_preset(preset),
+                try:
+                    status = await client.get_status(job.meshy_task_id)
+                except Exception as exc:
+                    logger.warning("KIRI status check failed for %s: %s", job.job_id, exc)
+                    continue
+                if status in (STATUS_FAILED, STATUS_EXPIRED):
+                    job.status = JobStatus.ERROR
+                    job.error_message = f"KIRI reconstruction {status} (serialize {job.meshy_task_id})"
+                elif status == STATUS_SUCCESS:
+                    job.status = JobStatus.DOWNLOADING_MODEL
+                    job.error_message = None
+                    to_download.append(job.job_id)
+                elif status in in_progress:
+                    job.status = JobStatus.RECONSTRUCTING
+                    job.error_message = None
+                    to_poll.append(job.job_id)
+                else:
+                    continue
+                job.updated_at = datetime.now()
+                _job_to_record(job, record)
+                logger.info(
+                    "KIRI resume %s serialize=%s status=%s",
+                    job.job_id,
+                    job.meshy_task_id,
+                    status,
                 )
-                try:
-                    task = await client.get_task(job.meshy_task_id)
-                except Exception as e:
-                    logger.warning("Meshy recovery poll failed for %s: %s", job.job_id, e)
-                    continue
+            db.commit()
+        finally:
+            db.close()
 
-                if task.get("status", "").upper() != "SUCCEEDED":
-                    continue
+        for job_id in to_download:
+            asyncio.create_task(self._finish_kiri_job(job_id, poll=False))
+        for job_id in to_poll:
+            asyncio.create_task(self._finish_kiri_job(job_id, poll=True))
 
-                try:
-                    job = await finalize_meshy_result(job, client, task, job.meshy_task_id)
-                    job.updated_at = datetime.now()
-                    _job_to_record(job, record)
-                    recovered += 1
-                    logger.info(
-                        "Recovered job %s from Meshy task %s",
+    async def _finish_kiri_job(self, job_id: str, *, poll: bool) -> None:
+        from core.pipeline import _extract_glb_metadata
+        from services.kiri.client import KiriClient, KiriError, extract_scan_assets
+
+        cfg = get_settings()
+        client = KiriClient(
+            api_key=cfg.KIRI_API_KEY,
+            poll_interval_s=cfg.KIRI_POLL_INTERVAL_S,
+            timeout_s=cfg.KIRI_TIMEOUT_S,
+        )
+        db = database.SessionLocal()
+        try:
+            record = db.query(JobRecord).filter(JobRecord.job_id == job_id).first()
+            if record is None:
+                return
+            job = _record_to_job(record)
+            if not job.meshy_task_id:
+                return
+            glb_path = cfg.MODELS_DIR / f"{job.job_id}.glb"
+            try:
+                if poll:
+                    await client.poll_until_complete(job.meshy_task_id)
+                job_dir = cfg.MODELS_DIR / job.job_id
+                zip_path = job_dir / "kiri.zip"
+                await client.download_model_zip(job.meshy_task_id, zip_path)
+                extracted, _ply = extract_scan_assets(zip_path, job_dir)
+                glb_path.write_bytes(extracted.read_bytes())
+                zip_path.unlink(missing_ok=True)
+                job.model_filename = f"{job.job_id}.glb"
+                job.model_url = f"/api/jobs/{job.job_id}/model"
+                job.model_metadata = _extract_glb_metadata(glb_path)
+                job.status = JobStatus.COMPLETED
+                job.progress = 1.0
+                job.error_message = None
+                logger.info("Resumed KIRI job %s", job.job_id)
+            except KiriError as exc:
+                if "timed out" in str(exc).lower():
+                    job.status = JobStatus.RECONSTRUCTING
+                    job.error_message = None
+                    logger.warning(
+                        "KIRI resume still processing %s serialize=%s",
                         job.job_id,
                         job.meshy_task_id,
                     )
-                except Exception as e:
-                    logger.warning("Meshy recovery download failed for %s: %s", job.job_id, e)
-
-            if recovered:
-                db.commit()
-                logger.info("Recovered %d job(s) from completed Meshy tasks", recovered)
+                else:
+                    job.status = JobStatus.ERROR
+                    job.error_message = str(exc)
+                    logger.warning("KIRI resume failed for %s: %s", job.job_id, exc)
+            job.updated_at = datetime.now()
+            _job_to_record(job, record)
+            db.commit()
         finally:
             db.close()
 

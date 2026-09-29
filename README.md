@@ -32,7 +32,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/RAILWAY-RUNBOOK.md`](docs/RA
 railway up --service api
 ```
 
-Set env vars: `MESHY_API_KEY`, `STORAGE_PUBLIC_BASE_URL` (api public URL), `JWT_SECRET_KEY`.  
+Set env vars: `KIRI_API_KEY`, `JWT_SECRET_KEY`.  
 Mount volume at `/app/backend/storage`.
 
 Config: [`railway.toml`](railway.toml) → [`Dockerfile.railway`](Dockerfile.railway)
@@ -188,8 +188,8 @@ mesh-up/
 │   │   ├── brand.py                         # MESH-UP brand constants
 │   │   ├── config.py                        # Quality presets, settings
 │   │   ├── models.py                        # Pydantic models
-│   │   └── pipeline.py                      # Job orchestration (frames → Meshy → GLB)
-│   ├── services/meshy/                      # Meshy client, keyframes, storage
+│   │   └── pipeline.py                      # Job orchestration (video → KIRI → GLB)
+│   ├── services/kiri/                       # KIRI 3DGS client
 │   ├── main.py                              # FastAPI entry
 │   └── requirements.txt
 ├── frontend/
@@ -209,10 +209,9 @@ mesh-up/
 
 | Issue | Solution |
 |---|---|
-| Long job times | Use **Fast** preset or shorter video |
+| New scans fail immediately | Set `KIRI_API_KEY` on the api service |
 | Stale frontend after deploy | Hard-refresh (`Ctrl+Shift+R`) or redeploy on Railway |
 | Demo login fails | Use `demo@mesh-up.app` / `demo123`; re-seed DB if migrated from old demo user |
-| Meshy jobs fail | Set `MESHY_API_KEY` on api service |
 | Jobs lost on redeploy | Attach volume on api at `/app/backend/storage` |
 
 ---
@@ -226,7 +225,7 @@ mesh-up/
 
 ## Resources
 
-- [Meshy API](https://docs.meshy.ai/)
+- [KIRI Engine API](https://docs.kiriengine.app/3dgs-scan/video-upload)
 - [Babylon.js](https://github.com/BabylonJS/Babylon.js)
 - [Railway Documentation](https://docs.railway.com/)
 

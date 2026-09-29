@@ -1,12 +1,19 @@
-import { Vector3 } from '@babylonjs/core';
 import type { ArcRotateCameraPointersInput } from '@babylonjs/core/Cameras/Inputs/arcRotateCameraPointersInput';
 import type { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
+import { pickMeshSurface } from '@/lib/meshPick';
 import type { SceneManifestResponse } from '@/types/job';
 import type { BabylonViewerCtx, LoadPhase, StoredCameraPose, ViewerMode } from '../types';
 import { restoreCameraPose } from '../camera/poseStorage';
 import { resetViewWithFraming } from '../camera/framing';
+import { canvasCoordsFromPointerEvent } from '../measure/measurePointer';
+import {
+  applyOrbitNavigation,
+  cappedOrbitRadius,
+  configureWalkControls,
+  syncOrbitPanToRadius,
+} from '../camera/setupCameras';
 import { AUTO_ROTATE_ALPHA_SPEED } from '../constants';
 import { getWalkStartPoseFromRaw } from '../walk/walkPath';
 
@@ -54,16 +61,18 @@ export function useCameraMode(
       restoreOrbitInputs(orbitCamera);
       scene.activeCamera = orbitCamera;
       orbitCamera.attachControl(canvas, false);
+      applyOrbitNavigation(orbitCamera);
       walkCamera.detachControl();
     } else if (mode === 'walkthrough') {
       restoreOrbitInputs(orbitCamera);
       walkCamera.position.copyFrom(orbitCamera.position);
       const tgt = orbitCamera.getTarget();
       walkCamera.setTarget(tgt);
+      configureWalkControls(walkCamera);
       if (ctx.collisionMesh) {
-        ctx.collisionMesh.checkCollisions = true;
+        ctx.collisionMesh.checkCollisions = false;
       }
-      scene.gravity = new Vector3(0, -Math.max(0.08, ctx.effectiveDiagonal * 0.06), 0);
+      scene.gravity.set(0, 0, 0);
       scene.activeCamera = walkCamera;
       orbitCamera.detachControl();
       walkCamera.attachControl(canvas, false);
@@ -71,8 +80,27 @@ export function useCameraMode(
       scene.activeCamera = orbitCamera;
       walkCamera.detachControl();
       orbitCamera.attachControl(canvas, false);
+      applyOrbitNavigation(orbitCamera);
       attachMeasureInputs(orbitCamera);
     }
+
+    if (mode !== 'orbit') return;
+
+    const onDoubleClick = (event: MouseEvent) => {
+      const { cssX, cssY } = canvasCoordsFromPointerEvent(canvas, event);
+      const hit = pickMeshSurface(scene, cssX, cssY);
+      if (!hit.hit || !hit.point) return;
+      orbitCamera.setTarget(hit.point);
+      orbitCamera.radius = cappedOrbitRadius(
+        orbitCamera.radius,
+        ctx.effectiveDiagonal,
+        orbitCamera.lowerRadiusLimit,
+      );
+      syncOrbitPanToRadius(orbitCamera);
+    };
+
+    canvas.addEventListener('dblclick', onDoubleClick);
+    return () => canvas.removeEventListener('dblclick', onDoubleClick);
   }, [mode, loadPhase, viewerRef, canvasRef]);
 
   useEffect(() => {
@@ -85,9 +113,16 @@ export function useCameraMode(
       beforeRenderRef.current = null;
     }
 
-    if (autoRotate && mode === 'orbit') {
+    if (mode === 'orbit' || mode === 'measure') {
+      let lastRadius = Number.NaN;
       const cb = () => {
-        orbitCamera.alpha += AUTO_ROTATE_ALPHA_SPEED;
+        if (autoRotate && mode === 'orbit') {
+          orbitCamera.alpha += AUTO_ROTATE_ALPHA_SPEED;
+        }
+        if (Math.abs(orbitCamera.radius - lastRadius) > 1e-4) {
+          lastRadius = orbitCamera.radius;
+          syncOrbitPanToRadius(orbitCamera);
+        }
       };
       beforeRenderRef.current = cb;
       scene.onBeforeRenderObservable.add(cb);
@@ -128,6 +163,7 @@ export function useResetView(
     restoreOrbitInputs(orbitCamera);
     scene.activeCamera = orbitCamera;
     orbitCamera.attachControl(canvas, false);
+    applyOrbitNavigation(orbitCamera);
     walkCamera.detachControl();
   };
 }

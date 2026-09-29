@@ -46,9 +46,9 @@ async def lifespan(app: FastAPI):
     manager = get_job_manager()
     manager.recover_stale_jobs()
     try:
-        await manager._recover_meshy_errored_jobs()
+        await manager.resume_kiri_jobs()
     except Exception as e:
-        logger.warning("Meshy error-job recovery failed: %s", e)
+        logger.warning("KIRI job resume failed: %s", e)
     yield
 
 

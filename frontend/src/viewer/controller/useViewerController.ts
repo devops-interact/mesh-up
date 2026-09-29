@@ -157,7 +157,7 @@ export function useViewerController(opts: UseViewerControllerOptions) {
     worldUnitRef,
     onPickHint: measure.setMeasurePickHint,
     onAddPoint: measure.handleAddMeasurePoint,
-    onUndoPoint: measure.handleUndoLastPoint,
+    onReleaseSelection: measure.handleReleaseSelection,
   });
 
   useEffect(() => {

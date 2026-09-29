@@ -9,28 +9,28 @@ export function buildMeasurePickHint(
   pick: PickResult | null,
   segmentText?: string | null,
 ): string {
-  if (!pick) return 'Aim at visible mesh geometry to select a vertex.';
+  const activeLen = measurePhase === 'calibrate' ? calibLen : measureLen;
+  const label = measurePhase === 'calibrate' ? 'calibration' : 'measure';
   const seg = segmentText ? ` · ${segmentText}` : '';
 
-  if (!pick.isSnapped) {
-    if (measurePhase === 'calibrate') {
-      if (calibLen === 0) return `Move closer to a vertex — click to place calibration A${seg}`;
-      if (calibLen === 1) return `Drag to orbit the model, then click a vertex for calibration B${seg}`;
-      return `Move closer to a vertex — click replaces calibration (new A)${seg}`;
-    }
-    if (measureLen === 0) return `Move closer to a vertex — click to place measure A${seg}`;
-    if (measureLen === 1) return `Move closer to a vertex — click to place measure B${seg}`;
-    return `Move closer to a vertex — click starts a new pair (new A)${seg}`;
+  if (activeLen >= 2) {
+    return 'Selection held. Esc or Soltar clears it.';
   }
 
-  if (measurePhase === 'calibrate') {
-    if (calibLen === 0) return `Vertex selected — click to place calibration A${seg}`;
-    if (calibLen === 1) return `Vertex selected — drag to orbit, then click to place calibration B${seg}`;
-    return `Vertex selected — click replaces calibration (new A)${seg}`;
+  if (!pick) {
+    if (activeLen === 1) {
+      return `Point A is set. Drag to change the view, then click a vertex for B. Esc releases.${seg}`;
+    }
+    return 'Aim at visible mesh geometry to select a vertex.';
   }
-  if (measureLen === 0) return `Vertex selected — click to place measure A${seg}`;
-  if (measureLen === 1) return `Vertex selected — click to place measure B${seg}`;
-  return `Vertex selected — click starts a new pair (new A)${seg}`;
+
+  if (!pick.isSnapped) {
+    if (activeLen === 0) return `Move closer to a vertex — click to place ${label} A${seg}`;
+    return `Point A is set. Drag to orbit, then click a vertex for B${seg}`;
+  }
+
+  if (activeLen === 0) return `Vertex selected — click to place ${label} A${seg}`;
+  return `Vertex selected — click without dragging to place ${label} B${seg}`;
 }
 
 export { MEASURE_PICK_HINT_IDLE };

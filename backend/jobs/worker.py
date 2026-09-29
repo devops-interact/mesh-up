@@ -1,5 +1,5 @@
 """
-Lightweight asyncio job queue — Meshy reconstructions with limited parallelism.
+Lightweight asyncio job queue — KIRI reconstructions with limited parallelism.
 """
 import asyncio
 import logging
@@ -10,7 +10,7 @@ from core.pipeline import process_job
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-_semaphore = asyncio.Semaphore(settings.MESHY_MAX_PARALLEL_JOBS)
+_semaphore = asyncio.Semaphore(settings.KIRI_MAX_PARALLEL_JOBS)
 _active: set[str] = set()
 
 

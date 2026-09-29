@@ -98,9 +98,9 @@ export function ViewerToolbar({
               <span className="font-semibold text-white text-sm">Viewer Controls</span>
               <button type="button" onClick={onToggleHelp} className="text-white/40 hover:text-white"><X className="w-3 h-3" /></button>
             </div>
-            <HelpItem icon={<MousePointer className="w-3 h-3" />} title="Orbit">Left-drag: orbit. Right-drag / Ctrl+left-drag: pan. Scroll: zoom.</HelpItem>
-            <HelpItem icon={<Footprints className="w-3 h-3" />} title="Walk-Through">WASD move with collision proxy. Mouse look.{hasWalkPath ? ' Walk path snaps camera to recorded tour positions.' : ''}</HelpItem>
-            <HelpItem icon={<Ruler className="w-3 h-3" />} title="Measure">Left-drag: orbit. Left-click: place point on a vertex. Right-drag: pan. Scroll: zoom. Calibrate with two known points, then measure.</HelpItem>
+            <HelpItem icon={<MousePointer className="w-3 h-3" />} title="Orbit">Left-drag: orbit. Right-drag / Ctrl+left-drag: pan. Scroll: zoom. Double-click a surface to move the orbit pivot.</HelpItem>
+            <HelpItem icon={<Footprints className="w-3 h-3" />} title="Walk-Through">Click to look. WASD moves. Space up, Shift down. Esc releases the mouse.{hasWalkPath ? ' Walk path snaps the camera to the recorded start.' : ''}</HelpItem>
+            <HelpItem icon={<Ruler className="w-3 h-3" />} title="Measure">Left-drag: orbit. Left-click without dragging: place a vertex. Right-drag: pan. Scroll: zoom. Esc or Soltar releases the selection.</HelpItem>
             <HelpItem icon={<Glasses className="w-3 h-3" />} title="Inspect">Wireframe, textures, PBR, exposure, grid, zones.</HelpItem>
             <HelpItem icon={<Glasses className="w-3 h-3" />} title="WebXR">Enter VR when a headset is available.</HelpItem>
           </div>
@@ -136,11 +136,11 @@ export function ViewerModeHint({ mode, hasWalkPath = false }: { mode: ViewerMode
   return (
     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-10">
       <div className="glass-panel text-white/50 text-[10px] px-3 py-1.5">
-        {mode === 'orbit' && 'Left: Orbit  |  Shift+Drag / Right: Pan  |  Scroll: Zoom'}
+        {mode === 'orbit' && 'Left: Orbit  |  Right / Ctrl+Left: Pan  |  Scroll: Zoom  |  Double-click: Pivot'}
         {mode === 'walkthrough' && (hasWalkPath
-          ? 'WASD: Move  |  Mouse: Look  |  Walk path start applied'
-          : 'WASD: Move  |  Mouse: Look  |  Space/Shift: Up/Down')}
-        {mode === 'measure' && 'Left-drag: Orbit  |  Left-click: Place point  |  Right-drag: Pan  |  Scroll: Zoom  |  Esc/Right-click: Undo'}
+          ? 'Click to look  |  WASD  |  Space/Shift up/down  |  Esc releases mouse  |  Walk path start applied'
+          : 'Click to look  |  WASD  |  Space/Shift up/down  |  Esc releases mouse')}
+        {mode === 'measure' && 'Left-drag: Orbit  |  Left-click: Place point  |  Right-drag: Pan  |  Esc / Soltar: Release'}
       </div>
     </div>
   );

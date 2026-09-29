@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { canvasCoordsFromPointerEvent } from './measurePointer';
+import { canvasCoordsFromPointerEvent, shouldCommitMeasurePick, type MeasureCameraPose } from './measurePointer';
+
+const pose = (patch: Partial<MeasureCameraPose> = {}): MeasureCameraPose => ({
+  alpha: 1,
+  beta: 1.2,
+  radius: 6,
+  targetX: 0,
+  targetY: 0,
+  targetZ: 0,
+  ...patch,
+});
 
 describe('canvasCoordsFromPointerEvent', () => {
   it('maps client coords to CSS and buffer space with DPR', () => {
@@ -52,5 +62,27 @@ describe('canvasCoordsFromPointerEvent', () => {
     expect(coords.cssY).toBe(100);
     expect(coords.bufferX).toBe(0);
     expect(coords.bufferY).toBe(100);
+  });
+});
+
+describe('shouldCommitMeasurePick', () => {
+  it('commits a stationary click that leaves the camera still', () => {
+    const start = pose();
+    expect(shouldCommitMeasurePick(0, start, pose())).toBe(true);
+    expect(shouldCommitMeasurePick(7, start, pose())).toBe(true);
+  });
+
+  it('ignores a drag even if the pointer ends on a vertex', () => {
+    const start = pose();
+    expect(shouldCommitMeasurePick(9, start, pose())).toBe(false);
+    expect(shouldCommitMeasurePick(40, start, pose({ alpha: start.alpha + 0.2 }))).toBe(false);
+  });
+
+  it('ignores a gesture that orbited, zoomed, or panned the camera', () => {
+    const start = pose();
+    expect(shouldCommitMeasurePick(1, start, pose({ alpha: start.alpha + 0.02 }))).toBe(false);
+    expect(shouldCommitMeasurePick(1, start, pose({ beta: start.beta + 0.02 }))).toBe(false);
+    expect(shouldCommitMeasurePick(1, start, pose({ radius: 8 }))).toBe(false);
+    expect(shouldCommitMeasurePick(1, start, pose({ targetX: 1 }))).toBe(false);
   });
 });

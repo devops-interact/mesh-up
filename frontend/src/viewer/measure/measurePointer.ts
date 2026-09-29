@@ -1,3 +1,36 @@
+/** A click that travels farther than this is a camera drag, not a measure pick. */
+export const MEASURE_CLICK_MAX_PX = 8;
+/** About two pixels of orbit at angular sensibility 450. */
+export const MEASURE_ORBIT_ANGLE_EPS = 0.004;
+export const MEASURE_RADIUS_EPS_FRAC = 0.002;
+
+export interface MeasureCameraPose {
+  alpha: number;
+  beta: number;
+  radius: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+}
+
+/** True only for a stationary click that did not orbit, zoom, or pan the camera. */
+export function shouldCommitMeasurePick(
+  travelPx: number,
+  start: MeasureCameraPose,
+  end: MeasureCameraPose,
+): boolean {
+  if (travelPx > MEASURE_CLICK_MAX_PX) return false;
+  if (Math.abs(start.alpha - end.alpha) > MEASURE_ORBIT_ANGLE_EPS) return false;
+  if (Math.abs(start.beta - end.beta) > MEASURE_ORBIT_ANGLE_EPS) return false;
+  const radiusEps = Math.max(1e-4, Math.max(start.radius, end.radius) * MEASURE_RADIUS_EPS_FRAC);
+  if (Math.abs(start.radius - end.radius) > radiusEps) return false;
+  const dx = start.targetX - end.targetX;
+  const dy = start.targetY - end.targetY;
+  const dz = start.targetZ - end.targetZ;
+  const targetEps = Math.max(1e-4, Math.max(start.radius, 1e-4) / 300);
+  return dx * dx + dy * dy + dz * dz <= targetEps * targetEps;
+}
+
 export interface CanvasPointerCoords {
   /** CSS pixels relative to canvas (Babylon scene.pointerX/Y space). */
   cssX: number;

@@ -32,8 +32,8 @@ const STATUS_LABELS: Record<JobStatusEnum, string> = {
   [JobStatusEnum.VALIDATING]: 'Validating video format',
   [JobStatusEnum.EXTRACTING_FRAMES]: 'Extracting frames from video',
   [JobStatusEnum.SELECTING_KEYFRAMES]: 'Selecting best keyframes',
-  [JobStatusEnum.SUBMITTING_RECONSTRUCTION]: 'Submitting to Meshy AI',
-  [JobStatusEnum.RECONSTRUCTING]: 'AI reconstructing 3D mesh',
+  [JobStatusEnum.SUBMITTING_RECONSTRUCTION]: 'Sending video to KIRI',
+  [JobStatusEnum.RECONSTRUCTING]: 'Reconstructing 3D mesh',
   [JobStatusEnum.DOWNLOADING_MODEL]: 'Downloading model',
   [JobStatusEnum.COMPOSING_SCENE]: 'Composing room scene',
   [JobStatusEnum.COMPLETED]: 'Completed',
@@ -41,10 +41,10 @@ const STATUS_LABELS: Record<JobStatusEnum, string> = {
 };
 
 const PRESET_LABELS: Record<string, string> = {
-  quality: 'Object — highest detail (~22 min est.)',
-  room: 'Room — full space (~40 min est.)',
-  fast: 'Object — highest detail (~22 min est.)',
-  balanced: 'Object — highest detail (~22 min est.)',
+  quality: 'Object — isolated subject',
+  room: 'Room — full space (up to 3 min video)',
+  fast: 'Object — isolated subject',
+  balanced: 'Object — isolated subject',
 };
 
 const POLL_OK_MS = 2000;

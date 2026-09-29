@@ -23,8 +23,7 @@ railway up --service api
 
 | Variable | Description |
 |---|---|
-| `MESHY_API_KEY` | Meshy API bearer key |
-| `STORAGE_PUBLIC_BASE_URL` | Public **api** URL (for Meshy keyframe image URLs) |
+| `KIRI_API_KEY` | KIRI Engine bearer key (required for new scans) |
 | `JWT_SECRET_KEY` | Auth secret (production) |
 | `PORT` | Set automatically by Railway |
 
@@ -83,10 +82,10 @@ Railway dashboard → service → Deployments → redeploy previous version.
 |---|---|
 | Demo login fails after rebrand | Use `demo@mesh-up.app` / `demo123`; delete SQLite on api volume to re-seed if old demo user remains |
 | Login/API 404 on web domain | Set `BACKEND_URL` on web service to api public URL |
-| Meshy can't fetch keyframes | Set `STORAGE_PUBLIC_BASE_URL` on **api** to api public URL |
+| New scans fail immediately | Set `KIRI_API_KEY` on **api** |
 | Jobs lost on redeploy | Attach volume on **api** at `/app/backend/storage` |
 | Upload fails (413) | nginx `client_max_body_size` is 500m in frontend Dockerfile |
 
 ## Cost monitoring
 
-Meshy: ~30 credits/job (~$0.30–0.60). Railway: Hobby/Pro + volume (~$5–20/mo per service).
+KIRI: about 1 credit per scan. Railway: Hobby/Pro + volume (~$5–20/mo per service). New jobs read `KIRI_API_KEY` only.

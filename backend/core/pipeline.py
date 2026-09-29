@@ -1,28 +1,23 @@
 """
-High-level orchestration: video → keyframes → Meshy multi-image-to-3D → GLB
+High-level orchestration: video → KIRI 3DGS-to-mesh → GLB.
 """
 import logging
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
-from core.config import get_settings, QUALITY_PRESETS, QualityPreset, MeshyPresetConfig
-from core.models import Job, JobStatus, ModelMetadata, KeyframeInfo
+from core.config import get_settings, QUALITY_PRESETS, QualityPreset
+from core.models import Job, JobStatus, ModelMetadata
 from jobs.job_manager import get_job_manager
-from services.video.extract_frames import extract_frames
 from services.video.orientation import resolve_pipeline_orientation
-from services.meshy.client import MeshyClient, MeshyError
-from services.meshy.camera_pose import estimate_yaw_by_index
-from services.meshy.keyframe_selector import (
-    frame_candidates_from_paths,
-    laplacian_sharpness,
-    list_frame_paths,
-    select_keyframes,
+from services.video.prepare import prepare_video_for_kiri
+from services.kiri.client import (
+    KiriClient,
+    KiriError,
+    STATUS_PROCESSING,
+    STATUS_QUEUED,
+    extract_scan_assets,
 )
-from services.meshy.meshy_params import meshy_task_kwargs
-from services.meshy.person_filter import person_flags_by_index
-from services.meshy.storage_upload import publish_keyframes
-from utils.cpu_executor import run_cpu_bound
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -69,75 +64,52 @@ def _extract_glb_metadata(glb_path: Path, thumbnail_url: Optional[str] = None) -
         )
 
 
-def _aggregate_glb_metadata(
-    glb_paths: list[Path],
-    *,
-    thumbnail_url: Optional[str] = None,
-    bounding_box: Optional[dict] = None,
-) -> Optional[ModelMetadata]:
-    """Sum vertex/face counts and file sizes across multiple GLB assets."""
-    total_verts = 0
-    total_faces = 0
-    total_size = 0
-    has_pbr = False
-    has_colors = False
-
-    for glb_path in glb_paths:
-        if not glb_path.exists():
-            continue
-        meta = _extract_glb_metadata(glb_path, thumbnail_url=thumbnail_url)
-        if not meta:
-            continue
-        total_verts += meta.vertex_count or 0
-        total_faces += meta.face_count or 0
-        total_size += meta.file_size or 0
-        has_pbr = has_pbr or bool(meta.has_pbr)
-        has_colors = has_colors or bool(meta.has_colors)
-
-    if total_verts == 0 and total_faces == 0 and total_size == 0:
-        return None
-
-    return ModelMetadata(
-        file_size=total_size or None,
-        vertex_count=total_verts,
-        face_count=total_faces,
-        has_colors=has_colors,
-        has_pbr=has_pbr,
-        bounding_box=bounding_box,
-        format="glb",
-        thumbnail_url=thumbnail_url,
+async def _run_kiri_reconstruction(job: Job, video_path: Path, *, is_mask: bool, start_time: float) -> Job:
+    """Submit a prepared video to KIRI, poll, and store the scene GLB."""
+    job_manager = get_job_manager()
+    client = KiriClient(
+        api_key=settings.KIRI_API_KEY,
+        poll_interval_s=settings.KIRI_POLL_INTERVAL_S,
+        timeout_s=settings.KIRI_TIMEOUT_S,
     )
 
+    job.status = JobStatus.SUBMITTING_RECONSTRUCTION
+    job.progress = 0.25
+    await job_manager.update_job(job)
 
-async def finalize_meshy_result(
-    job: Job,
-    client: MeshyClient,
-    result: dict,
-    task_id: str,
-    *,
-    processing_time_seconds: Optional[float] = None,
-) -> Job:
-    """Download GLB/OBJ from a succeeded Meshy task and mark the job completed."""
-    glb_url = MeshyClient.best_glb_url(result)
-    if not glb_url:
-        raise MeshyError("Meshy task succeeded but no GLB URL returned")
+    serialize = await client.submit_3dgs_video(video_path, is_mask=is_mask)
+    job.meshy_task_id = serialize
+    await job_manager.update_job(job)
 
-    glb_path = settings.MODELS_DIR / f"{job.job_id}.glb"
-    await client.download_file(glb_url, str(glb_path))
+    job.status = JobStatus.RECONSTRUCTING
+    job.progress = 0.4
+    await job_manager.update_job(job)
 
-    obj_url = (result.get("model_urls") or {}).get("obj")
-    if obj_url:
-        obj_path = settings.MODELS_DIR / job.job_id / f"{job.job_id}.obj"
-        try:
-            await client.download_file(obj_url, str(obj_path))
-            job.model_url_obj = f"/static/models/{job.job_id}/{job.job_id}.obj"
-        except Exception as e:
-            logger.warning("Optional OBJ download failed: %s", e)
+    async def on_poll(status: int) -> None:
+        if status == STATUS_QUEUED:
+            job.progress = max(job.progress, 0.45)
+        elif status == STATUS_PROCESSING:
+            job.progress = min(0.85, job.progress + 0.02)
+        await job_manager.update_job(job)
 
-    thumbnail_url = result.get("thumbnail_url")
-    metadata = _extract_glb_metadata(glb_path, thumbnail_url=thumbnail_url)
+    await client.poll_until_complete(serialize, on_poll=on_poll)
+
+    job.status = JobStatus.DOWNLOADING_MODEL
+    job.progress = 0.9
+    await job_manager.update_job(job)
+
+    job_dir = settings.MODELS_DIR / job.job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = job_dir / "kiri.zip"
+    await client.download_model_zip(serialize, zip_path)
+    extracted_glb, ply_path = extract_scan_assets(zip_path, job_dir)
+    final_glb = settings.MODELS_DIR / f"{job.job_id}.glb"
+    final_glb.write_bytes(extracted_glb.read_bytes())
+    zip_path.unlink(missing_ok=True)
+
+    metadata = _extract_glb_metadata(final_glb)
     if metadata:
-        metadata.meshy_task_id = task_id
+        metadata.meshy_task_id = serialize
         job.model_metadata = metadata
 
     job.status = JobStatus.COMPLETED
@@ -145,202 +117,76 @@ async def finalize_meshy_result(
     job.model_filename = f"{job.job_id}.glb"
     job.model_url = f"/api/jobs/{job.job_id}/model"
     job.error_message = None
-    if processing_time_seconds is not None:
-        job.processing_time_seconds = processing_time_seconds
-    return job
-
-
-def _meshy_timeout_for_preset(preset: QualityPreset) -> float:
-    preset_config = QUALITY_PRESETS[preset]
-    return preset_config.meshy_timeout_s or settings.MESHY_TIMEOUT_S
-
-
-def _build_keyframe_metadata(
-    job_id: str,
-    keyframe_paths: List[Path],
-    image_urls: List[str],
-    yaw_by_index: dict,
-    sharpness_by_index: dict,
-    person_by_index: Optional[dict] = None,
-) -> List[KeyframeInfo]:
-    candidates = frame_candidates_from_paths(
-        keyframe_paths,
-        yaw_by_index=yaw_by_index,
-        sharpness_by_index=sharpness_by_index,
-    )
-    path_to_c = {c.path: c for c in candidates}
-    result: List[KeyframeInfo] = []
-    for i, path in enumerate(keyframe_paths):
-        c = path_to_c.get(path)
-        idx = c.index if c else i
-        result.append(KeyframeInfo(
-            url=image_urls[i] if i < len(image_urls) else "",
-            index=idx,
-            zone_id=None,
-            yaw_deg=c.yaw_deg if c else yaw_by_index.get(i),
-            sharpness=c.sharpness if c else sharpness_by_index.get(i),
-            person_detected=bool(person_by_index.get(idx, False)) if person_by_index else False,
-        ))
-    return result
-
-
-async def process_single_object_job(job: Job) -> Job:
-    job_manager = get_job_manager()
-    start_time = time.time()
-
-    preset = job.quality_preset or QualityPreset.QUALITY
-    preset_config = QUALITY_PRESETS[preset]
-    meshy_timeout = _meshy_timeout_for_preset(preset)
+    job.processing_time_seconds = round(time.time() - start_time, 1)
+    await job_manager.update_job(job)
     logger.info(
-        "Processing job %s preset=%s meshy_timeout_s=%s",
-        job.job_id,
-        preset.value,
-        meshy_timeout,
-    )
-
-    job.status = JobStatus.EXTRACTING_FRAMES
-    job.progress = 0.15
-    await job_manager.update_job(job)
-
-    video_path = settings.UPLOADS_DIR / job.video_filename
-    frames_dir = settings.FRAMES_DIR / job.job_id
-
-    orient = resolve_pipeline_orientation(video_path, job.validation)
-    rotation_deg = orient.rotation_deg
-    is_portrait = orient.is_portrait
-    logger.info(
-        "Video orientation for job %s: %s %s (rotation=%d°, display=%dx%d)",
-        job.job_id,
-        orient.label,
-        orient.aspect_label,
-        orient.rotation_deg,
-        orient.display_width,
-        orient.display_height,
-    )
-
-    await extract_frames(
-        video_path,
-        frames_dir,
-        preset_config.fps,
-        rotation_deg=rotation_deg,
-        expected_portrait=is_portrait,
-    )
-
-    job.status = JobStatus.SELECTING_KEYFRAMES
-    job.progress = 0.25
-    await job_manager.update_job(job)
-
-    frame_paths = list_frame_paths(frames_dir)
-    if not frame_paths:
-        raise ValueError(f"No frames found in {frames_dir}")
-
-    yaw_by_index, _ = await run_cpu_bound(
-        estimate_yaw_by_index,
-        frame_paths,
-        fps=preset_config.fps,
-        allow_uniform_fallback=True,
-        is_portrait=is_portrait,
-    )
-    sharpness_by_index = {i: laplacian_sharpness(p) for i, p in enumerate(frame_paths)}
-    person_by_index = None
-    if preset_config.exclude_person_frames:
-        person_by_index = await run_cpu_bound(
-            person_flags_by_index,
-            frame_paths,
-            hit_threshold=preset_config.person_hog_hit_threshold,
-            min_confidence=preset_config.person_min_confidence,
-            is_portrait=is_portrait,
-        )
-    keyframes = select_keyframes(
-        frame_paths,
-        max_count=preset_config.max_keyframes,
-        yaw_by_index=yaw_by_index,
-        sharpness_by_index=sharpness_by_index,
-        person_by_index=person_by_index,
-    )
-    image_urls = publish_keyframes(job.job_id, keyframes)
-    job.keyframes = _build_keyframe_metadata(
-        job.job_id, keyframes, image_urls, yaw_by_index, sharpness_by_index, person_by_index,
-    )
-
-    job.status = JobStatus.SUBMITTING_RECONSTRUCTION
-    job.progress = 0.35
-    await job_manager.update_job(job)
-
-    client = MeshyClient(
-        api_key=settings.MESHY_API_KEY,
-        poll_interval_s=settings.MESHY_POLL_INTERVAL_S,
-        timeout_s=meshy_timeout,
-    )
-
-    kwargs = meshy_task_kwargs(preset_config, image_urls)
-    task_id = await client.create_multi_image_task(image_urls=image_urls, **kwargs)
-    job.meshy_task_id = task_id
-
-    job.status = JobStatus.RECONSTRUCTING
-    job.progress = 0.45
-    await job_manager.update_job(job)
-
-    async def on_poll(task: dict) -> None:
-        progress = task.get("progress", 0)
-        job.progress = 0.35 + (progress / 100.0) * 0.50
-        await job_manager.update_job(job)
-
-    result = await client.poll_until_complete(task_id, on_poll=on_poll)
-
-    job.status = JobStatus.DOWNLOADING_MODEL
-    job.progress = 0.90
-    await job_manager.update_job(job)
-
-    job = await finalize_meshy_result(
-        job,
-        client,
-        result,
-        task_id,
-        processing_time_seconds=round(time.time() - start_time, 1),
-    )
-    await job_manager.update_job(job)
-
-    logger.info(
-        "Job %s completed in %ss (Meshy task %s)",
+        "Job %s completed in %ss (KIRI %s, splat=%s)",
         job.job_id,
         job.processing_time_seconds,
-        task_id,
+        serialize,
+        ply_path is not None,
     )
     return job
+
 
 
 async def process_job(job: Job) -> Job:
-    if not settings.MESHY_API_KEY:
+    """Upload video -> normalize -> KIRI 3DGS mesh -> GLB."""
+    if not settings.KIRI_API_KEY:
         job.status = JobStatus.ERROR
-        job.error_message = "MESHY_API_KEY is not configured"
+        job.error_message = "KIRI_API_KEY is not configured"
         await get_job_manager().update_job(job)
         return job
 
+    job_manager = get_job_manager()
+    start_time = time.time()
     preset = job.quality_preset or QualityPreset.QUALITY
     preset_config = QUALITY_PRESETS[preset]
 
     try:
-        if preset_config.composition_mode == "zone_mesh":
-            from core.pipeline_room import process_room_job
-            return await process_room_job(job)
-        return await process_single_object_job(job)
-    except MeshyError as e:
+        video_path = settings.UPLOADS_DIR / job.video_filename
+        if not video_path.exists():
+            raise KiriError(f"Uploaded video missing: {video_path.name}")
+
+        job.status = JobStatus.VALIDATING
+        job.progress = 0.08
+        await job_manager.update_job(job)
+
+        orient = resolve_pipeline_orientation(video_path, job.validation)
+        prepared = settings.UPLOADS_DIR / f"{job.job_id}-kiri.mp4"
+        video_for_kiri = await prepare_video_for_kiri(
+            video_path,
+            prepared,
+            rotation_deg=orient.rotation_deg,
+            display_width=orient.display_width,
+            display_height=orient.display_height,
+        )
+        return await _run_kiri_reconstruction(
+            job,
+            video_for_kiri,
+            is_mask=preset_config.kiri_object_mask,
+            start_time=start_time,
+        )
+    except KiriError as e:
         msg = str(e)
         if job.meshy_task_id and "timed out" in msg.lower():
-            msg = (
-                f"{msg} Meshy task ID: {job.meshy_task_id}. "
-                "The task may still finish on Meshy's side — restart the API to attempt "
-                "recovery, or re-upload the video."
+            logger.warning(
+                "KIRI still in progress for job %s serialize=%s; leaving it reconstructing",
+                job.job_id,
+                job.meshy_task_id,
             )
+            job.status = JobStatus.RECONSTRUCTING
+            job.error_message = None
+            await job_manager.update_job(job)
+            return job
         logger.error("Error processing job %s: %s", job.job_id, msg, exc_info=True)
         job.status = JobStatus.ERROR
         job.error_message = msg
-        await get_job_manager().update_job(job)
+        await job_manager.update_job(job)
         return job
     except Exception as e:
         logger.error("Error processing job %s: %s", job.job_id, e, exc_info=True)
         job.status = JobStatus.ERROR
         job.error_message = str(e)
-        await get_job_manager().update_job(job)
+        await job_manager.update_job(job)
         return job

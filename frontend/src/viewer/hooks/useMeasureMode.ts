@@ -15,7 +15,12 @@ import { MeasurePreviewGizmo } from '../measure/MeasurePreviewGizmo';
 import { MeasureOverlay } from '../measure/MeasureOverlay';
 import { buildMeasurePickHint } from '../measure/measureHint';
 import { MEASURE_PICK_HINT_IDLE } from '../measure/colors';
-import { canvasCoordsFromPointerEvent } from '../measure/measurePointer';
+import {
+  canvasCoordsFromPointerEvent,
+  MEASURE_CLICK_MAX_PX,
+  shouldCommitMeasurePick,
+  type MeasureCameraPose,
+} from '../measure/measurePointer';
 import { isMeasureDebugEnabled } from '../dev/inspector';
 
 export interface UseMeasureModeOptions {
@@ -31,10 +36,8 @@ export interface UseMeasureModeOptions {
   worldUnitRef: RefObject<number>;
   onPickHint: (hint: string) => void;
   onAddPoint: (point: Vector3) => void;
-  onUndoPoint: () => void;
+  onReleaseSelection: () => void;
 }
-
-const CLICK_DRAG_MAX_PX_SQ = 8 * 8;
 
 function collectPickableMeshes(ctx: BabylonViewerCtx) {
   return [...ctx.geometryMeshes, ...ctx.shellMeshes];
@@ -54,7 +57,7 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
     worldUnitRef,
     onPickHint,
     onAddPoint,
-    onUndoPoint,
+    onReleaseSelection,
   } = opts;
 
   const measurePickCtxRef = useRef({ measurePhase, calibPoints, measurePoints, calibration });
@@ -111,6 +114,8 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
 
     let pointerDownOnCanvas = false;
     const downPos = { x: 0, y: 0 };
+    let gestureTravelPx = 0;
+    let poseAtDown: MeasureCameraPose | null = null;
     let pointerInside = true;
     let pendingMouse: MouseEvent | null = null;
     let hoverRafId = 0;
@@ -193,25 +198,39 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
       }
     };
 
+    const snapshotOrbit = (): MeasureCameraPose => {
+      const orbit = ctx.orbitCamera;
+      const target = orbit.getTarget();
+      return {
+        alpha: orbit.alpha,
+        beta: orbit.beta,
+        radius: orbit.radius,
+        targetX: target.x,
+        targetY: target.y,
+        targetZ: target.z,
+      };
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       pointerDownOnCanvas = true;
       downPos.x = e.clientX;
       downPos.y = e.clientY;
-    };
-
-    const draggedSincePointerDown = (e: MouseEvent | PointerEvent): boolean => {
-      if (!pointerDownOnCanvas) return false;
-      const dx = e.clientX - downPos.x;
-      const dy = e.clientY - downPos.y;
-      return dx * dx + dy * dy > CLICK_DRAG_MAX_PX_SQ;
+      gestureTravelPx = 0;
+      poseAtDown = snapshotOrbit();
     };
 
     const onPointerUp = (e: PointerEvent) => {
       if (e.button !== 0) return;
-      if (!pointerDownOnCanvas) return;
+      if (!pointerDownOnCanvas || !poseAtDown) return;
       pointerDownOnCanvas = false;
-      if (draggedSincePointerDown(e)) return;
+      const dx = e.clientX - downPos.x;
+      const dy = e.clientY - downPos.y;
+      const travelPx = Math.max(gestureTravelPx, Math.hypot(dx, dy));
+      const commit = shouldCommitMeasurePick(travelPx, poseAtDown, snapshotOrbit());
+      poseAtDown = null;
+      gestureTravelPx = 0;
+      if (!commit) return;
       try {
         const pick = pickFromEvent(e);
         if (pick) {
@@ -231,38 +250,43 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
 
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      onUndoPoint();
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Escape') onUndoPoint();
+      if (e.code !== 'Escape') return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      onReleaseSelection();
     };
 
     const onMove = (e: MouseEvent) => {
-      if (pointerDownOnCanvas && draggedSincePointerDown(e)) {
-        gizmo.hide();
-        return;
+      if (pointerDownOnCanvas) {
+        const dx = e.clientX - downPos.x;
+        const dy = e.clientY - downPos.y;
+        gestureTravelPx = Math.max(gestureTravelPx, Math.hypot(dx, dy));
+        if (gestureTravelPx > MEASURE_CLICK_MAX_PX) {
+          gizmo.hide();
+          return;
+        }
       }
       scheduleHover(e);
     };
 
     const onLeave = () => {
       pointerInside = false;
-      pointerDownOnCanvas = false;
       pendingMouse = null;
       gizmo.hide();
-      onPickHint(MEASURE_PICK_HINT_IDLE);
     };
 
     const onEnter = (e: MouseEvent) => {
       pointerInside = true;
-      downPos.x = e.clientX;
-      downPos.y = e.clientY;
+      if (gestureTravelPx > MEASURE_CLICK_MAX_PX) return;
       scheduleHover(e);
     };
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('contextmenu', onContextMenu);
     canvas.addEventListener('mousemove', onMove);
     canvas.addEventListener('pointerleave', onLeave);
@@ -273,6 +297,7 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
       if (hoverRafId) cancelAnimationFrame(hoverRafId);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('mousemove', onMove);
       canvas.removeEventListener('pointerleave', onLeave);
@@ -288,6 +313,6 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
     worldUnitRef,
     onPickHint,
     onAddPoint,
-    onUndoPoint,
+    onReleaseSelection,
   ]);
 }

@@ -215,11 +215,11 @@ export default function ScanView() {
               3D Reconstruction
             </h2>
             <p className="text-gray-600 text-sm max-w-2xl">
-              Upload video scans to generate AI-reconstructed 3D meshes via Meshy.
+              Upload a video to reconstruct a measurable 3D mesh.
             </p>
             <p className="text-gray-700 text-xs max-w-2xl mt-1">
-              Use <strong>Room — full space</strong> for walkthrough videos (multi-zone). Object presets produce a single mesh.
-              For rooms: slowly rotate the phone 360° from the center, or walk a full loop with walls visible.
+              Use <strong>Room — full space</strong> for a walkthrough (one mesh of the space, up to 3 minutes). A full room can take over an hour.
+              Object mode masks the background and reconstructs a single subject.
             </p>
             {jobQualityPreset && (
               <span className={`inline-block mt-2 text-[10px] px-2 py-0.5 rounded border uppercase tracking-wide ${
