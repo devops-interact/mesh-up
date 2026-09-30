@@ -28,7 +28,11 @@ export function setupSceneLighting(scene: Scene): LightingState {
 
   // Minimal IBL so environment intensity slider has visible effect on PBR
   try {
-    scene.createDefaultEnvironment({ createGround: false, enableGroundShadow: false });
+    scene.createDefaultEnvironment({
+      createSkybox: false,
+      createGround: false,
+      enableGroundShadow: false,
+    });
   } catch {
     /* environment optional */
   }

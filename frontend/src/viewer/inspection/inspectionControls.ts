@@ -25,7 +25,7 @@ export const DEFAULT_INSPECTION: InspectionState = {
     dirIntensity: 0.65,
     envIntensity: 1,
   },
-  showGrid: false,
+  showGrid: true,
   showAxes: true,
   showShell: false,
   showZoneDetail: true,
