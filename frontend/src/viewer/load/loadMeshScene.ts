@@ -4,6 +4,7 @@ import { Matrix, MeshBuilder, Quaternion, Vector3 } from '@babylonjs/core';
 import axios from 'axios';
 import { isCancel } from 'axios';
 import { getAuthHeaders } from '@/lib/authHeaders';
+import { importedHierarchyRoot } from '../transform/modelTransform';
 
 const MODEL_FETCH_TIMEOUT_MS = 120_000;
 
@@ -53,7 +54,8 @@ export async function importGlbBuffer(
 
     const meshes = result.meshes.filter((m) => m.isVisible);
     const geometryMeshes = meshes.filter((m) => m.getTotalVertices() > 0);
-    const root = geometryMeshes[0] ?? meshes[0];
+    const seed = geometryMeshes[0] ?? meshes[0];
+    const root = seed ? importedHierarchyRoot(seed) : undefined;
     if (!root) {
       throw new Error('GLB import produced no meshes');
     }

@@ -11,7 +11,7 @@ import {
   Scaling,
   X,
 } from 'lucide-react';
-import type { ModelTransformMode } from '../hooks/useModelTransform';
+import type { ModelTransformMode, QuarterTurnAxis } from '../hooks/useModelTransform';
 import type { ViewerMode } from '../types';
 
 export interface ViewerToolbarProps {
@@ -23,6 +23,7 @@ export interface ViewerToolbarProps {
   hasWalkPath?: boolean;
   transformMode?: ModelTransformMode;
   onTransformMode?: (mode: ModelTransformMode) => void;
+  onQuarterTurn?: (axis: QuarterTurnAxis) => void;
   onModeChange: (mode: ViewerMode) => void;
   onSnapshot: () => void;
   onReset: () => void;
@@ -43,6 +44,7 @@ export function ViewerToolbar({
   hasWalkPath = false,
   transformMode = 'none',
   onTransformMode,
+  onQuarterTurn,
   onModeChange,
   onSnapshot,
   onReset,
@@ -84,6 +86,13 @@ export function ViewerToolbar({
             <div className="border-t border-white/[0.18] my-1" />
             <ToolbarButton icon={<Move className="w-3.5 h-3.5" />} label="Move" active={transformMode === 'move'} onClick={() => onTransformMode('move')} />
             <ToolbarButton icon={<Rotate3d className="w-3.5 h-3.5" />} label="Rotate" active={transformMode === 'rotate'} onClick={() => onTransformMode('rotate')} />
+            {transformMode === 'rotate' && onQuarterTurn && (
+              <>
+                <ToolbarButton icon={<Rotate3d className="w-3.5 h-3.5" />} label="90° X" onClick={() => onQuarterTurn('x')} />
+                <ToolbarButton icon={<Rotate3d className="w-3.5 h-3.5" />} label="90° Y" onClick={() => onQuarterTurn('y')} />
+                <ToolbarButton icon={<Rotate3d className="w-3.5 h-3.5" />} label="90° Z" onClick={() => onQuarterTurn('z')} />
+              </>
+            )}
             <ToolbarButton icon={<Scaling className="w-3.5 h-3.5" />} label="Scale" active={transformMode === 'scale'} onClick={() => onTransformMode('scale')} />
           </>
         )}
@@ -115,7 +124,7 @@ export function ViewerToolbar({
               <button type="button" onClick={onToggleHelp} className="text-white/40 hover:text-white"><X className="w-3 h-3" /></button>
             </div>
             <HelpItem icon={<MousePointer className="w-3 h-3" />} title="Orbit">Left-drag: orbit. Right-drag / Ctrl+left-drag: pan. Scroll: zoom. Double-click a surface to move the orbit pivot.</HelpItem>
-            <HelpItem icon={<Move className="w-3 h-3" />} title="Move / Rotate / Scale">Drag the model axes. Click the button again to turn the gizmo off.</HelpItem>
+            <HelpItem icon={<Move className="w-3 h-3" />} title="Move / Rotate / Scale">Drag the model axes. Left-drag no longer orbits while a gizmo is on. Right-drag pans, scroll zooms. In Rotate, 90° X/Y/Z turns the model a quarter turn. Click the button again to turn the gizmo off.</HelpItem>
             <HelpItem icon={<Footprints className="w-3 h-3" />} title="Walk-Through">Click to look. WASD moves. Space up, Shift down. Esc releases the mouse.{hasWalkPath ? ' Walk path snaps the camera to the recorded start.' : ''}</HelpItem>
             <HelpItem icon={<Ruler className="w-3 h-3" />} title="Measure">Left-drag: orbit. Left-click without dragging: place a vertex. Right-drag: pan. Scroll: zoom. Esc or Soltar releases the selection.</HelpItem>
             <HelpItem icon={<Glasses className="w-3 h-3" />} title="Inspect">Wireframe, textures, PBR, exposure, grid, zones.</HelpItem>
@@ -161,7 +170,8 @@ export function ViewerModeHint({
   return (
     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-10">
       <div className="glass-panel text-white/50 text-[10px] px-3 py-1.5">
-        {mode === 'orbit' && transformMode !== 'none' && 'Move / Rotate / Scale: drag the model axes'}
+        {mode === 'orbit' && transformMode === 'rotate' && 'Drag the rotation axes  |  90° X/Y/Z  |  Right-drag: Pan  |  Scroll: Zoom'}
+        {mode === 'orbit' && (transformMode === 'move' || transformMode === 'scale') && 'Drag the model axes  |  Right-drag: Pan  |  Scroll: Zoom'}
         {mode === 'orbit' && transformMode === 'none' && 'Left: Orbit  |  Right / Ctrl+Left: Pan  |  Scroll: Zoom  |  Double-click: Pivot'}
         {mode === 'walkthrough' && (hasWalkPath
           ? 'Click to look  |  WASD  |  Space/Shift up/down  |  Esc releases mouse  |  Walk path start applied'

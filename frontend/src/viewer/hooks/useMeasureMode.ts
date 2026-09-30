@@ -15,6 +15,7 @@ import { MeasurePreviewGizmo } from '../measure/MeasurePreviewGizmo';
 import { MeasureOverlay } from '../measure/MeasureOverlay';
 import { buildMeasurePickHint } from '../measure/measureHint';
 import { MEASURE_PICK_HINT_IDLE } from '../measure/colors';
+import { ensureMeasureUtilityLayer } from '../measure/measureUtilityLayer';
 import {
   canvasCoordsFromPointerEvent,
   MEASURE_CLICK_MAX_PX,
@@ -70,12 +71,9 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
     const ctx = viewerRef.current;
     if (!ctx || loadPhase !== 'ready') return;
 
-    const utilityScene = ctx.utilityLayer.utilityLayerScene;
-    if (overlaySceneRef.current !== utilityScene) {
-      overlayRef.current?.dispose();
-      overlayRef.current = new MeasureOverlay(ctx.utilityLayer);
-      overlaySceneRef.current = utilityScene;
-    }
+    const layer = ensureMeasureUtilityLayer(ctx);
+    overlayRef.current = new MeasureOverlay(layer);
+    overlaySceneRef.current = layer.utilityLayerScene;
 
     return () => {
       overlayRef.current?.dispose();
@@ -85,10 +83,24 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
   }, [loadPhase, viewerRef]);
 
   useEffect(() => {
-    if (!overlayRef.current || loadPhase !== 'ready') return;
+    const ctx = viewerRef.current;
+    if (!ctx || loadPhase !== 'ready') return;
+
+    const layer = mode === 'measure' ? ensureMeasureUtilityLayer(ctx) : ctx.utilityLayer;
+    const utilityScene = layer?.utilityLayerScene;
+    const stale = !overlayRef.current
+      || !utilityScene
+      || utilityScene.isDisposed
+      || overlaySceneRef.current !== utilityScene;
+    if (stale && utilityScene && !utilityScene.isDisposed) {
+      overlayRef.current?.dispose();
+      overlayRef.current = new MeasureOverlay(layer);
+      overlaySceneRef.current = utilityScene;
+    }
+    if (!overlayRef.current) return;
     overlayRef.current.setWorldUnit(worldUnitRef.current ?? 0.024);
     overlayRef.current.update(visibleMeasurePoints);
-  }, [visibleMeasurePoints, worldUnitRef, loadPhase]);
+  }, [visibleMeasurePoints, worldUnitRef, loadPhase, mode, viewerRef]);
 
   useEffect(() => {
     if (mode !== 'measure') {
@@ -100,7 +112,8 @@ export function useMeasureMode(opts: UseMeasureModeOptions): void {
     const canvas = canvasRef.current;
     if (loadPhase !== 'ready' || !ctx || !canvas) return;
 
-    const { scene, utilityLayer } = ctx;
+    const { scene } = ctx;
+    const utilityLayer = ensureMeasureUtilityLayer(ctx);
     const camera = scene.activeCamera;
     if (!camera) return;
 

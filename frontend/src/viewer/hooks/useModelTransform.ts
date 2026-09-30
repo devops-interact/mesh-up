@@ -1,14 +1,28 @@
-import { Quaternion, Vector3 } from '@babylonjs/core';
+import { AbstractMesh, Quaternion, Vector3 } from '@babylonjs/core';
+import type { Observer, TransformNode } from '@babylonjs/core';
 import { GizmoManager } from '@babylonjs/core/Gizmos/gizmoManager';
-import type { AbstractMesh, Observer } from '@babylonjs/core';
+import { GizmoCoordinatesMode } from '@babylonjs/core/Gizmos/gizmo';
+import { UtilityLayerRenderer } from '@babylonjs/core/Rendering/utilityLayerRenderer';
 import type { DragStartEndEvent } from '@babylonjs/core/Behaviors/Meshes/pointerDragEvents';
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
-import { applyOrbitNavigation } from '../camera/setupCameras';
+import {
+  ORBIT_POINTER_BUTTONS,
+  TRANSFORM_POINTER_BUTTONS,
+  setOrbitPointerButtons,
+} from './useCameraMode';
+import {
+  applyQuarterTurn,
+  centerPivotOnBounds,
+  recenterOrbitOnMeshes,
+  resolveTransformRoot,
+  type QuarterTurnAxis,
+} from '../transform/modelTransform';
 import type { BabylonViewerCtx, LoadPhase, ViewerMode } from '../types';
 
+export type { QuarterTurnAxis };
 export type ModelTransformMode = 'none' | 'move' | 'rotate' | 'scale';
 
-interface MeshRestPose {
+interface NodeRestPose {
   position: Vector3;
   rotation: Vector3;
   scaling: Vector3;
@@ -16,55 +30,81 @@ interface MeshRestPose {
 }
 
 interface DragGizmo {
-  onDragStartObservable: { add: (cb: (event: DragStartEndEvent) => void) => Observer<DragStartEndEvent> | null; remove: (observer: Observer<DragStartEndEvent> | null) => boolean };
-  onDragEndObservable: { add: (cb: (event: DragStartEndEvent) => void) => Observer<DragStartEndEvent> | null; remove: (observer: Observer<DragStartEndEvent> | null) => boolean };
-}
-
-function snapshotPose(mesh: AbstractMesh): MeshRestPose {
-  return {
-    position: mesh.position.clone(),
-    rotation: mesh.rotation.clone(),
-    scaling: mesh.scaling.clone(),
-    quaternion: mesh.rotationQuaternion?.clone() ?? null,
+  onDragEndObservable: {
+    add: (cb: (event: DragStartEndEvent) => void) => Observer<DragStartEndEvent> | null;
+    remove: (observer: Observer<DragStartEndEvent> | null) => boolean;
   };
 }
 
-function restorePose(mesh: AbstractMesh, rest: MeshRestPose): void {
-  mesh.position.copyFrom(rest.position);
-  mesh.scaling.copyFrom(rest.scaling);
+function snapshotPose(node: TransformNode): NodeRestPose {
+  return {
+    position: node.position.clone(),
+    rotation: node.rotation.clone(),
+    scaling: node.scaling.clone(),
+    quaternion: node.rotationQuaternion?.clone() ?? null,
+  };
+}
+
+function restorePose(node: TransformNode, rest: NodeRestPose): void {
+  node.position.copyFrom(rest.position);
+  node.scaling.copyFrom(rest.scaling);
   if (rest.quaternion) {
-    if (!mesh.rotationQuaternion) mesh.rotationQuaternion = rest.quaternion.clone();
-    else mesh.rotationQuaternion.copyFrom(rest.quaternion);
+    if (!node.rotationQuaternion) node.rotationQuaternion = rest.quaternion.clone();
+    else node.rotationQuaternion.copyFrom(rest.quaternion);
   } else {
-    mesh.rotationQuaternion = null;
-    mesh.rotation.copyFrom(rest.rotation);
+    node.rotationQuaternion = null;
+    node.rotation.copyFrom(rest.rotation);
   }
 }
 
-/** Orbit-only move / rotate / scale gizmos on the loaded root mesh. */
+function geometryOf(ctx: BabylonViewerCtx): AbstractMesh[] {
+  if (ctx.geometryMeshes.length > 0) return ctx.geometryMeshes;
+  return ctx.rootMesh ? [ctx.rootMesh] : [];
+}
+
+export interface ModelTransformApi {
+  restoreMeshTransform: () => void;
+  quarterTurn: (axis: QuarterTurnAxis) => void;
+}
+
+/** Orbit-only move / rotate / scale on the imported hierarchy, around its center. */
 export function useModelTransform(
   viewerRef: RefObject<BabylonViewerCtx | null>,
   canvasRef: RefObject<HTMLCanvasElement | null>,
   mode: ViewerMode,
   loadPhase: LoadPhase,
   transformMode: ModelTransformMode,
-): () => void {
-  const restMeshRef = useRef<AbstractMesh | null>(null);
-  const restPoseRef = useRef<MeshRestPose | null>(null);
+): ModelTransformApi {
+  const restNodeRef = useRef<TransformNode | null>(null);
+  const restPoseRef = useRef<NodeRestPose | null>(null);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   useEffect(() => {
-    const mesh = viewerRef.current?.rootMesh ?? null;
-    if (!mesh || loadPhase !== 'ready' || restMeshRef.current === mesh) return;
-    restMeshRef.current = mesh;
-    restPoseRef.current = snapshotPose(mesh);
+    const ctx = viewerRef.current;
+    const mesh = ctx?.rootMesh ?? null;
+    if (!ctx || !mesh || loadPhase !== 'ready') return;
+    const node = resolveTransformRoot(mesh);
+    if (restNodeRef.current === node) return;
+    centerPivotOnBounds(node, geometryOf(ctx));
+    restNodeRef.current = node;
+    restPoseRef.current = snapshotPose(node);
   }, [loadPhase, viewerRef]);
 
   const restoreMeshTransform = useCallback(() => {
-    const mesh = restMeshRef.current;
+    const node = restNodeRef.current;
     const rest = restPoseRef.current;
-    if (!mesh || !rest) return;
-    restorePose(mesh, rest);
+    if (!node || !rest) return;
+    restorePose(node, rest);
   }, []);
+
+  const quarterTurn = useCallback((axis: QuarterTurnAxis) => {
+    const ctx = viewerRef.current;
+    const node = restNodeRef.current;
+    if (!ctx || !node) return;
+    applyQuarterTurn(node, axis);
+    recenterOrbitOnMeshes(ctx.orbitCamera, geometryOf(ctx));
+  }, [viewerRef]);
 
   useEffect(() => {
     const ctx = viewerRef.current;
@@ -72,32 +112,33 @@ export function useModelTransform(
     if (!ctx || !canvas || loadPhase !== 'ready') return;
 
     const mesh = ctx.rootMesh;
-    const active = mode === 'orbit' && transformMode !== 'none' && mesh;
-    if (!active) return;
+    const node = restNodeRef.current ?? (mesh ? resolveTransformRoot(mesh) : null);
+    const active = mode === 'orbit' && transformMode !== 'none' && node;
+    if (!active || !node) return;
 
-    const manager = new GizmoManager(ctx.scene, 1, ctx.utilityLayer);
+    const { orbitCamera } = ctx;
+    const gizmoLayer = new UtilityLayerRenderer(ctx.scene, true);
+    gizmoLayer.setRenderCamera(orbitCamera);
+    const manager = new GizmoManager(ctx.scene, 1, gizmoLayer);
     manager.usePointerToAttachGizmos = false;
     manager.clearGizmoOnEmptyPointerEvent = false;
     manager.enableAutoPicking = false;
     manager.scaleRatio = Math.max(0.6, ctx.effectiveDiagonal * 0.12);
-    manager.attachToMesh(mesh);
+    if (node instanceof AbstractMesh) manager.attachToMesh(node);
+    else manager.attachToNode(node);
     manager.positionGizmoEnabled = transformMode === 'move';
     manager.rotationGizmoEnabled = transformMode === 'rotate';
     manager.scaleGizmoEnabled = transformMode === 'scale';
+    manager.coordinatesMode = GizmoCoordinatesMode.World;
+    setOrbitPointerButtons(orbitCamera, TRANSFORM_POINTER_BUTTONS);
 
-    const { orbitCamera } = ctx;
     const unsubscribers: Array<() => void> = [];
     const bindDrag = (gizmo: DragGizmo | null) => {
       if (!gizmo) return;
-      const start = gizmo.onDragStartObservable.add(() => {
-        orbitCamera.detachControl();
-      });
       const end = gizmo.onDragEndObservable.add(() => {
-        orbitCamera.attachControl(canvas, false);
-        applyOrbitNavigation(orbitCamera);
+        recenterOrbitOnMeshes(orbitCamera, geometryOf(ctx));
       });
       unsubscribers.push(() => {
-        gizmo.onDragStartObservable.remove(start);
         gizmo.onDragEndObservable.remove(end);
       });
     };
@@ -109,12 +150,11 @@ export function useModelTransform(
     return () => {
       for (const unsubscribe of unsubscribers) unsubscribe();
       manager.dispose();
-      if (!orbitCamera.inputs.attachedToElement) {
-        orbitCamera.attachControl(canvas, false);
-        applyOrbitNavigation(orbitCamera);
+      if (modeRef.current === 'orbit') {
+        setOrbitPointerButtons(orbitCamera, ORBIT_POINTER_BUTTONS);
       }
     };
   }, [canvasRef, loadPhase, mode, transformMode, viewerRef]);
 
-  return restoreMeshTransform;
+  return { restoreMeshTransform, quarterTurn };
 }

@@ -9,9 +9,9 @@ import {
   MEASURE_PREVIEW_YELLOW,
   MEASURE_PREVIEW_YELLOW_LINES,
   makeOverlayMaterial,
+  placeOverlayInFront,
 } from './colors';
 
-const OVERLAY_RENDER_GROUP = 2;
 const SCRATCH_TO_CAMERA = new Vector3();
 const SCRATCH_RIGHT = new Vector3();
 const SCRATCH_LOCAL_UP = new Vector3();
@@ -78,18 +78,17 @@ export class MeasurePreviewGizmo {
     this.dash.alpha = 0.55;
 
     for (const mesh of [this.ring, this.dot, this.ghost, this.hLine, this.vLine, this.triLine, this.dash]) {
-      mesh.isPickable = false;
-      mesh.renderingGroupId = OVERLAY_RENDER_GROUP;
+      placeOverlayInFront(mesh);
       mesh.setEnabled(false);
     }
   }
 
   private computeScale(camDist: number, isSnapped: boolean): number {
     const scaleBase = Math.max(
-      this.worldUnit * 2,
-      this.effectiveDiagonal * 0.004,
-      camDist * 0.012,
-      0.01,
+      this.worldUnit * 4,
+      this.effectiveDiagonal * 0.012,
+      camDist * 0.02,
+      0.02,
     );
     return isSnapped ? scaleBase * 1.2 : scaleBase;
   }
@@ -153,6 +152,7 @@ export class MeasurePreviewGizmo {
     this.linePts[1].copyFrom(position).addInPlace(SCRATCH_OFFSET);
     MeshBuilder.CreateLines('measureH', { points: this.linePts, instance: this.hLine });
     this.hLine.color = lineColor;
+    placeOverlayInFront(this.hLine);
     this.hLine.setEnabled(true);
 
     SCRATCH_LOCAL_UP.scaleToRef(-halfLen, SCRATCH_OFFSET);
@@ -162,6 +162,7 @@ export class MeasurePreviewGizmo {
     MeshBuilder.CreateLines('measureV', { points: this.linePts, instance: this.vLine });
     this.vLine.color = lineColor;
     this.vLine.alpha = isSnapped ? 0.6 : 0.3;
+    placeOverlayInFront(this.vLine);
     this.vLine.setEnabled(true);
 
     if (pick.triangleVerts?.length === 3) {
@@ -171,6 +172,7 @@ export class MeasurePreviewGizmo {
       this.triPts[3].copyFrom(pick.triangleVerts[0]);
       MeshBuilder.CreateLines('measureTri', { points: this.triPts, instance: this.triLine });
       this.triLine.color = lineColor;
+      placeOverlayInFront(this.triLine);
       this.triLine.setEnabled(true);
     } else {
       this.triLine.setEnabled(false);
@@ -183,6 +185,7 @@ export class MeasurePreviewGizmo {
       this.dashPts[0].copyFrom(previousWorld);
       this.dashPts[1].copyFrom(position);
       MeshBuilder.CreateDashedLines('measureDash', { points: this.dashPts, instance: this.dash });
+      placeOverlayInFront(this.dash);
       this.dash.setEnabled(true);
     } else {
       this.dash.setEnabled(false);

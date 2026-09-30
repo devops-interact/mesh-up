@@ -6,7 +6,7 @@ import type { ZoneMeshHandle } from '../load/loadMeshScene';
 import { applySceneState, resolveEffectiveVisibleZones, shouldAutoShowShell } from './applySceneState';
 import { useMeasureController } from './useMeasureController';
 import { useCameraMode, useResetView } from '../hooks/useCameraMode';
-import { useModelTransform, type ModelTransformMode } from '../hooks/useModelTransform';
+import { useModelTransform, type ModelTransformMode, type QuarterTurnAxis } from '../hooks/useModelTransform';
 import { useWalkthroughMode } from '../hooks/useWalkthroughMode';
 import { useMeasureMode } from '../hooks/useMeasureMode';
 import { DEFAULT_INSPECTION, type InspectionState } from '../inspection/inspectionControls';
@@ -138,7 +138,13 @@ export function useViewerController(opts: UseViewerControllerOptions) {
   useWalkthroughMode(viewerRef, canvasRef, mode, loadPhase, sceneManifest, sceneScaleRef);
 
   const resetView = useResetView(viewerRef, canvasRef, initialPoseRef);
-  const restoreMeshTransform = useModelTransform(viewerRef, canvasRef, mode, loadPhase, transformMode);
+  const { restoreMeshTransform, quarterTurn } = useModelTransform(
+    viewerRef,
+    canvasRef,
+    mode,
+    loadPhase,
+    transformMode,
+  );
 
   useMeasureMode({
     viewerRef,
@@ -173,6 +179,10 @@ export function useViewerController(opts: UseViewerControllerOptions) {
     setMode('orbit');
   }, []);
 
+  const handleQuarterTurn = useCallback((axis: QuarterTurnAxis) => {
+    quarterTurn(axis);
+  }, [quarterTurn]);
+
   const handleReset = useCallback(() => {
     setMode('orbit');
     setTransformMode('none');
@@ -192,6 +202,7 @@ export function useViewerController(opts: UseViewerControllerOptions) {
     setAutoRotate,
     transformMode,
     handleTransformMode,
+    handleQuarterTurn,
     inspection,
     visibleZones,
     handleInspectionChange,

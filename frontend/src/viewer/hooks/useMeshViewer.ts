@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Color4, Engine, Scene, Vector3 } from '@babylonjs/core';
 import '@/viewer/babylonSetup';
-import { UtilityLayerRenderer } from '@babylonjs/core/Rendering/utilityLayerRenderer';
+import { createMeasureUtilityLayer } from '../measure/measureUtilityLayer';
 import { isAxiosError, isCancel } from 'axios';
 import { getApiBaseUrl } from '@/lib/apiBase';
 import type { ModelMetadataResponse } from '@/types/job';
@@ -130,8 +130,7 @@ export function useMeshViewer({
 
     const framingBehavior = attachFramingBehavior(orbitCamera);
     addSceneOverlays(scene);
-    const utilityLayer = new UtilityLayerRenderer(scene, false);
-    utilityLayer.setRenderCamera(orbitCamera);
+    const utilityLayer = createMeasureUtilityLayer(scene, orbitCamera);
 
     engine.runRenderLoop(() => scene.render());
     resizeObserver = new ResizeObserver(() => engine.resize());

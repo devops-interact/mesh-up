@@ -18,11 +18,18 @@ import {
 import { AUTO_ROTATE_ALPHA_SPEED } from '../constants';
 import { getWalkStartPoseFromRaw } from '../walk/walkPath';
 
-function restoreOrbitInputs(orbitCamera: ArcRotateCamera): void {
+/** Left, middle, and right. Left orbits; right and Ctrl+left pan. */
+export const ORBIT_POINTER_BUTTONS = [0, 1, 2] as const;
+/** Transform mode keeps right-drag pan and drops left-drag orbit. */
+export const TRANSFORM_POINTER_BUTTONS = [2] as const;
+
+export function setOrbitPointerButtons(orbitCamera: ArcRotateCamera, buttons: readonly number[]): void {
   const pointers = orbitCamera.inputs.attached.pointers as ArcRotateCameraPointersInput | null;
-  if (pointers) {
-    pointers.buttons = [0, 1, 2];
-  }
+  if (pointers) pointers.buttons = [...buttons];
+}
+
+function restoreOrbitInputs(orbitCamera: ArcRotateCamera): void {
+  setOrbitPointerButtons(orbitCamera, ORBIT_POINTER_BUTTONS);
 }
 
 function detachMeasureInputs(orbitCamera: ArcRotateCamera): void {

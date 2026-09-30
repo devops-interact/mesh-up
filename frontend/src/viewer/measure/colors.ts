@@ -1,8 +1,10 @@
 import { Color3, Constants, StandardMaterial } from '@babylonjs/core';
-import type { Scene } from '@babylonjs/core';
+import type { AbstractMesh, Scene } from '@babylonjs/core';
 
 export const MEASURE_PICK_HINT_IDLE =
-  'Edge view active — orbit to inspect, move over a vertex (yellow dot) and click to place a point…';
+  'Wireframe view — move over a vertex (yellow dot) and click to place a point…';
+
+export const MEASURE_OVERLAY_RENDER_GROUP = 2;
 
 export const MEASURE_PREVIEW_YELLOW = new Color3(1, 0.87, 0);
 export const MEASURE_PREVIEW_YELLOW_LINES = new Color3(0.94, 0.77, 0.1);
@@ -21,6 +23,17 @@ export function makeOverlayMaterial(scene: Scene, color: Color3, alpha: number):
   mat.alpha = alpha;
   mat.alphaMode = Constants.ALPHA_COMBINE;
   mat.disableDepthWrite = true;
+  mat.depthFunction = Constants.ALWAYS;
   mat.backFaceCulling = false;
   return mat;
+}
+
+/** Draw a measure marker over the wireframe instead of into the depth buffer. */
+export function placeOverlayInFront(mesh: AbstractMesh): void {
+  mesh.renderingGroupId = MEASURE_OVERLAY_RENDER_GROUP;
+  mesh.isPickable = false;
+  const mat = mesh.material;
+  if (!mat) return;
+  mat.depthFunction = Constants.ALWAYS;
+  mat.disableDepthWrite = true;
 }

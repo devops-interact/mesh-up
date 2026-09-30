@@ -179,6 +179,7 @@ export default function Viewer3D({
             hasWalkPath={controller.hasWalkPath}
             transformMode={controller.transformMode}
             onTransformMode={controller.handleTransformMode}
+            onQuarterTurn={controller.handleQuarterTurn}
             onModeChange={controller.setMode}
             onSnapshot={handleSnapshot}
             onReset={controller.handleReset}

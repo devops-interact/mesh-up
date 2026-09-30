@@ -3,10 +3,9 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh';
 import type { UtilityLayerRenderer } from '@babylonjs/core/Rendering/utilityLayerRenderer';
 import type { MeasurePoint } from '../types';
-import { MEASURE_PLACED_A, MEASURE_PLACED_B, MEASURE_PLACED_LINE, makeOverlayMaterial } from './colors';
+import { MEASURE_PLACED_A, MEASURE_PLACED_B, MEASURE_PLACED_LINE, makeOverlayMaterial, placeOverlayInFront } from './colors';
 
-const OVERLAY_RENDER_GROUP = 2;
-const PLACED_SPHERE_SCALE = 1.5;
+const PLACED_SPHERE_SCALE = 4;
 
 /** Pooled placed-point markers on the utility layer. */
 export class MeasureOverlay {
@@ -35,8 +34,7 @@ export class MeasureOverlay {
         const mat = makeOverlayMaterial(scene, color, 1);
         const sphere = MeshBuilder.CreateSphere(`measurePt${i}`, { diameter: 1, segments: 12 }, scene);
         sphere.material = mat;
-        sphere.isPickable = false;
-        sphere.renderingGroupId = OVERLAY_RENDER_GROUP;
+        placeOverlayInFront(sphere);
         this.spheres.push(sphere);
         this.mats.push(mat);
       }
@@ -56,10 +54,11 @@ export class MeasureOverlay {
         if (!this.line) {
           this.line = MeshBuilder.CreateLines('measureLine', { points: pts, updatable: true }, scene);
           this.line.color = MEASURE_PLACED_LINE;
-          this.line.isPickable = false;
-          this.line.renderingGroupId = OVERLAY_RENDER_GROUP;
+          placeOverlayInFront(this.line);
         } else {
           MeshBuilder.CreateLines('measureLine', { points: pts, instance: this.line });
+          this.line.color = MEASURE_PLACED_LINE;
+          placeOverlayInFront(this.line);
           this.line.setEnabled(true);
         }
       } else if (this.line) {
