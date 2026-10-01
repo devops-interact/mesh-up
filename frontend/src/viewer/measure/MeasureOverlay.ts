@@ -5,7 +5,7 @@ import type { UtilityLayerRenderer } from '@babylonjs/core/Rendering/utilityLaye
 import type { MeasurePoint } from '../types';
 import { MEASURE_PLACED_A, MEASURE_PLACED_B, MEASURE_PLACED_LINE, makeOverlayMaterial, placeOverlayInFront } from './colors';
 
-const PLACED_SPHERE_SCALE = 4;
+const PLACED_SPHERE_SCALE = 1.5;
 
 /** Pooled placed-point markers on the utility layer. */
 export class MeasureOverlay {

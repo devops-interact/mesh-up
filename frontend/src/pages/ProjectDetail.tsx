@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { listScans, deleteScan, Scan } from '@/api/scans';
-import { getProject as fetchProject, Project } from '@/api/projects';
+import { listScans, deleteScan, updateScan, Scan } from '@/api/scans';
+import { getProject as fetchProject, updateProject, Project } from '@/api/projects';
 import ScanThumbnail from '@/components/ScanThumbnail';
-import { ArrowLeft, Plus, Scan as ScanIcon, Trash2, MoreVertical, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Scan as ScanIcon, Trash2, MoreVertical, Loader2, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ProjectDetail() {
@@ -17,6 +17,12 @@ export default function ProjectDetail() {
   const [scans, setScans] = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState('');
+  const [savingProjectName, setSavingProjectName] = useState(false);
+  const [renamingScanId, setRenamingScanId] = useState<number | null>(null);
+  const [scanNameDraft, setScanNameDraft] = useState('');
+  const [savingScanName, setSavingScanName] = useState(false);
 
   const load = async () => {
     if (!projectIdNum) return;
@@ -50,6 +56,61 @@ export default function ProjectDetail() {
       setMenuOpen(null);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const startEditProjectName = () => {
+    if (!project) return;
+    setProjectNameDraft(project.name);
+    setEditingProjectName(true);
+  };
+
+  const cancelEditProjectName = () => {
+    setEditingProjectName(false);
+    setProjectNameDraft('');
+  };
+
+  const saveProjectName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!project) return;
+    const trimmed = projectNameDraft.trim();
+    if (!trimmed || savingProjectName) return;
+    setSavingProjectName(true);
+    try {
+      const updated = await updateProject(project.id, { name: trimmed });
+      setProject(updated);
+      cancelEditProjectName();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingProjectName(false);
+    }
+  };
+
+  const startRenameScan = (s: Scan) => {
+    setRenamingScanId(s.id);
+    setScanNameDraft(s.name || `Scan ${s.id}`);
+    setMenuOpen(null);
+  };
+
+  const cancelRenameScan = () => {
+    setRenamingScanId(null);
+    setScanNameDraft('');
+  };
+
+  const saveScanName = async (e: React.FormEvent, scanId: number) => {
+    e.preventDefault();
+    const trimmed = scanNameDraft.trim();
+    if (!trimmed || savingScanName) return;
+    setSavingScanName(true);
+    try {
+      const updated = await updateScan(projectIdNum, scanId, { name: trimmed });
+      setScans((prev) => prev.map((s) => (s.id === scanId ? updated : s)));
+      cancelRenameScan();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingScanName(false);
     }
   };
 
@@ -87,8 +148,44 @@ export default function ProjectDetail() {
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">{project.name}</h2>
+        <div className="flex-1 min-w-0">
+          {editingProjectName ? (
+            <form onSubmit={saveProjectName} className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={projectNameDraft}
+                onChange={(e) => setProjectNameDraft(e.target.value)}
+                className="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg bg-neutral-950 border border-white/[0.22] text-white text-sm focus:border-white/50 outline-none"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!projectNameDraft.trim() || savingProjectName}
+                className="px-3 py-1.5 rounded-lg bg-white text-black text-xs font-medium disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={cancelEditProjectName}
+                className="px-3 py-1.5 rounded-lg border border-white/[0.22] text-gray-400 text-xs hover:text-white"
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold tracking-tight text-white truncate">{project.name}</h2>
+              <button
+                type="button"
+                onClick={startEditProjectName}
+                className="p-1.5 rounded-lg border border-transparent hover:border-white/[0.22] hover:bg-white/[0.04] text-gray-500 hover:text-white transition-colors"
+                aria-label="Rename project"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           <p className="text-gray-600 text-sm">
             {project.scan_count} scan{project.scan_count !== 1 ? 's' : ''}
           </p>
@@ -149,27 +246,69 @@ export default function ProjectDetail() {
                     <MoreVertical className="w-4 h-4" />
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/projects/${projectId}/scans/${s.id}`)}
-                  className="block w-full text-left"
-                >
-                  <ScanThumbnail
-                    url={s.thumbnail_url}
-                    alt={s.name || `Scan ${s.id}`}
-                    className="mb-3"
-                  />
-                  <h3 className="font-semibold text-white mb-1 pr-6">
-                    {s.name || `Scan ${s.id}`}
-                  </h3>
-                  <p className={`text-xs capitalize ${statusColor(s.status)}`}>
-                    {statusLabel(s.status)}
-                  </p>
-                  <p className="text-gray-600 text-xs mt-1">{formatDate(s.created_at)}</p>
-                </button>
+                {renamingScanId === s.id ? (
+                  <form onSubmit={(e) => saveScanName(e, s.id)} className="space-y-2">
+                    <ScanThumbnail
+                      url={s.thumbnail_url}
+                      alt={s.name || `Scan ${s.id}`}
+                      className="mb-3"
+                    />
+                    <input
+                      type="text"
+                      value={scanNameDraft}
+                      onChange={(e) => setScanNameDraft(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-lg bg-neutral-950 border border-white/[0.22] text-white text-sm focus:border-white/50 outline-none"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={!scanNameDraft.trim() || savingScanName}
+                        className="px-3 py-1 rounded-lg bg-white text-black text-xs font-medium disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelRenameScan}
+                        className="px-3 py-1 rounded-lg border border-white/[0.22] text-gray-400 text-xs hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${projectId}/scans/${s.id}`)}
+                    className="block w-full text-left"
+                  >
+                    <ScanThumbnail
+                      url={s.thumbnail_url}
+                      alt={s.name || `Scan ${s.id}`}
+                      className="mb-3"
+                    />
+                    <h3 className="font-semibold text-white mb-1 pr-6">
+                      {s.name || `Scan ${s.id}`}
+                    </h3>
+                    <p className={`text-xs capitalize ${statusColor(s.status)}`}>
+                      {statusLabel(s.status)}
+                    </p>
+                    <p className="text-gray-600 text-xs mt-1">{formatDate(s.created_at)}</p>
+                  </button>
+                )}
                 {menuOpen === s.id && (
                   <div className="absolute right-2 top-12 z-10 rounded-lg bg-neutral-950 border border-white/[0.22] shadow-xl py-1 min-w-[120px]">
                     <button
+                      type="button"
+                      onClick={() => startRenameScan(s)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-gray-300 hover:bg-white/[0.06] text-sm"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Rename
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleDeleteScan(s.id)}
                       className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-500/10 text-sm"
                     >

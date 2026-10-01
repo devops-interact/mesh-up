@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listProjects, createProject, deleteProject, Project } from '@/api/projects';
-import { FolderOpen, Plus, Trash2, MoreVertical } from 'lucide-react';
+import { listProjects, createProject, deleteProject, updateProject, Project } from '@/api/projects';
+import { FolderOpen, Plus, Trash2, MoreVertical, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Dashboard() {
@@ -13,6 +13,9 @@ export default function Dashboard() {
   const [newName, setNewName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renaming, setRenaming] = useState(false);
   const navigate = useNavigate();
 
   const loadProjects = async () => {
@@ -54,6 +57,34 @@ export default function Dashboard() {
       setMenuOpen(null);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const startRename = (p: Project) => {
+    setRenamingId(p.id);
+    setRenameDraft(p.name);
+    setMenuOpen(null);
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameDraft('');
+  };
+
+  const handleRename = async (e: React.FormEvent, id: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const trimmed = renameDraft.trim();
+    if (!trimmed || renaming) return;
+    setRenaming(true);
+    try {
+      const updated = await updateProject(id, { name: trimmed });
+      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      cancelRename();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRenaming(false);
     }
   };
 
@@ -141,27 +172,68 @@ export default function Dashboard() {
                 transition={{ delay: i * 0.05 }}
                 className="relative rounded-xl border border-white/[0.22] bg-neutral-950 p-4 hover:border-white/[0.38] transition-colors group"
               >
-                <button
-                  onClick={() => navigate(`/projects/${p.id}`)}
-                  className="block w-full text-left"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <FolderOpen className="w-8 h-8 text-white/50" />
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === p.id ? null : p.id); }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] text-gray-400"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <h3 className="font-semibold text-white mb-1">{p.name}</h3>
-                  <p className="text-gray-500 text-xs">
-                    {p.scan_count} scan{p.scan_count !== 1 ? 's' : ''} · {formatDate(p.updated_at)}
-                  </p>
-                </button>
+                <div className="flex items-start justify-between mb-2">
+                  <FolderOpen className="w-8 h-8 text-white/50" />
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === p.id ? null : p.id); }}
+                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] text-gray-400"
+                    aria-label="Project options"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                </div>
+                {renamingId === p.id ? (
+                  <form onSubmit={(e) => handleRename(e, p.id)} className="space-y-2">
+                    <input
+                      type="text"
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-lg bg-neutral-950 border border-white/[0.22] text-white text-sm focus:border-white/50 outline-none"
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={!renameDraft.trim() || renaming}
+                        className="px-3 py-1 rounded-lg bg-white text-black text-xs font-medium disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); cancelRename(); }}
+                        className="px-3 py-1 rounded-lg border border-white/[0.22] text-gray-400 text-xs hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${p.id}`)}
+                    className="block w-full text-left"
+                  >
+                    <h3 className="font-semibold text-white mb-1">{p.name}</h3>
+                    <p className="text-gray-500 text-xs">
+                      {p.scan_count} scan{p.scan_count !== 1 ? 's' : ''} · {formatDate(p.updated_at)}
+                    </p>
+                  </button>
+                )}
                 {menuOpen === p.id && (
                   <div className="absolute right-2 top-12 z-10 rounded-lg bg-neutral-950 border border-white/[0.22] shadow-xl py-1 min-w-[120px]">
                     <button
+                      type="button"
+                      onClick={() => startRename(p)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-gray-300 hover:bg-white/[0.06] text-sm"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Rename
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleDelete(p.id)}
                       className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-500/10 text-sm"
                     >
