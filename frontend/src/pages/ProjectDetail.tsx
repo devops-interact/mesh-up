@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { listScans, deleteScan, updateScan, Scan } from '@/api/scans';
 import { getProject as fetchProject, updateProject, Project } from '@/api/projects';
+import { saveErrorMessage } from '@/lib/saveErrorMessage';
 import ScanThumbnail from '@/components/ScanThumbnail';
 import { ArrowLeft, Plus, Scan as ScanIcon, Trash2, MoreVertical, Loader2, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,9 +21,11 @@ export default function ProjectDetail() {
   const [editingProjectName, setEditingProjectName] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [savingProjectName, setSavingProjectName] = useState(false);
+  const [projectNameError, setProjectNameError] = useState<string | null>(null);
   const [renamingScanId, setRenamingScanId] = useState<number | null>(null);
   const [scanNameDraft, setScanNameDraft] = useState('');
   const [savingScanName, setSavingScanName] = useState(false);
+  const [scanNameError, setScanNameError] = useState<string | null>(null);
 
   const load = async () => {
     if (!projectIdNum) return;
@@ -45,6 +48,24 @@ export default function ProjectDetail() {
     load();
   }, [projectIdNum]);
 
+  useEffect(() => {
+    if (menuOpen == null) return;
+    const onPointer = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (target?.closest('[data-menu-root]')) return;
+      setMenuOpen(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(null);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
   const handleNewScan = () => {
     navigate(`/projects/${projectId}/scans/new`);
   };
@@ -62,12 +83,14 @@ export default function ProjectDetail() {
   const startEditProjectName = () => {
     if (!project) return;
     setProjectNameDraft(project.name);
+    setProjectNameError(null);
     setEditingProjectName(true);
   };
 
   const cancelEditProjectName = () => {
     setEditingProjectName(false);
     setProjectNameDraft('');
+    setProjectNameError(null);
   };
 
   const saveProjectName = async (e: React.FormEvent) => {
@@ -76,12 +99,14 @@ export default function ProjectDetail() {
     const trimmed = projectNameDraft.trim();
     if (!trimmed || savingProjectName) return;
     setSavingProjectName(true);
+    setProjectNameError(null);
     try {
       const updated = await updateProject(project.id, { name: trimmed });
       setProject(updated);
       cancelEditProjectName();
     } catch (err) {
       console.error(err);
+      setProjectNameError(saveErrorMessage(err));
     } finally {
       setSavingProjectName(false);
     }
@@ -90,12 +115,14 @@ export default function ProjectDetail() {
   const startRenameScan = (s: Scan) => {
     setRenamingScanId(s.id);
     setScanNameDraft(s.name || `Scan ${s.id}`);
+    setScanNameError(null);
     setMenuOpen(null);
   };
 
   const cancelRenameScan = () => {
     setRenamingScanId(null);
     setScanNameDraft('');
+    setScanNameError(null);
   };
 
   const saveScanName = async (e: React.FormEvent, scanId: number) => {
@@ -103,12 +130,14 @@ export default function ProjectDetail() {
     const trimmed = scanNameDraft.trim();
     if (!trimmed || savingScanName) return;
     setSavingScanName(true);
+    setScanNameError(null);
     try {
       const updated = await updateScan(projectIdNum, scanId, { name: trimmed });
       setScans((prev) => prev.map((s) => (s.id === scanId ? updated : s)));
       cancelRenameScan();
     } catch (err) {
       console.error(err);
+      setScanNameError(saveErrorMessage(err));
     } finally {
       setSavingScanName(false);
     }
@@ -172,6 +201,9 @@ export default function ProjectDetail() {
               >
                 Cancel
               </button>
+              {projectNameError && (
+                <p className="w-full text-red-400 text-xs">{projectNameError}</p>
+              )}
             </form>
           ) : (
             <div className="flex items-center gap-2">
@@ -234,14 +266,16 @@ export default function ProjectDetail() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="relative rounded-xl border border-white/[0.22] bg-neutral-950 p-4 hover:border-white/[0.38] transition-colors group"
+                className={`relative rounded-xl border border-white/[0.22] bg-neutral-950 p-4 hover:border-white/[0.38] transition-colors ${menuOpen === s.id ? 'z-30' : ''}`}
               >
                 <div className="absolute right-2 top-2 z-10">
                   <button
                     type="button"
-                    onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)}
-                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] text-gray-400"
+                    data-menu-root=""
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === s.id ? null : s.id); }}
+                    className="p-1 rounded text-gray-400 hover:bg-white/[0.06] hover:text-white"
                     aria-label="Scan options"
+                    aria-expanded={menuOpen === s.id}
                   >
                     <MoreVertical className="w-4 h-4" />
                   </button>
@@ -276,6 +310,9 @@ export default function ProjectDetail() {
                         Cancel
                       </button>
                     </div>
+                    {scanNameError && renamingScanId === s.id && (
+                      <p className="text-red-400 text-xs">{scanNameError}</p>
+                    )}
                   </form>
                 ) : (
                   <button
@@ -298,10 +335,10 @@ export default function ProjectDetail() {
                   </button>
                 )}
                 {menuOpen === s.id && (
-                  <div className="absolute right-2 top-12 z-10 rounded-lg bg-neutral-950 border border-white/[0.22] shadow-xl py-1 min-w-[120px]">
+                  <div data-menu-root="" className="absolute right-2 top-12 z-30 rounded-lg bg-neutral-950 border border-white/[0.22] shadow-xl py-1 min-w-[120px]">
                     <button
                       type="button"
-                      onClick={() => startRenameScan(s)}
+                      onClick={(e) => { e.stopPropagation(); startRenameScan(s); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-gray-300 hover:bg-white/[0.06] text-sm"
                     >
                       <Pencil className="w-3 h-3" />
@@ -309,7 +346,7 @@ export default function ProjectDetail() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteScan(s.id)}
+                      onClick={(e) => { e.stopPropagation(); void handleDeleteScan(s.id); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-500/10 text-sm"
                     >
                       <Trash2 className="w-3 h-3" />

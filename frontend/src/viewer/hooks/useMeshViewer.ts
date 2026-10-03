@@ -7,10 +7,7 @@ import { getApiBaseUrl } from '@/lib/apiBase';
 import type { ModelMetadataResponse } from '@/types/job';
 import type { SceneManifestResponse } from '@/types/job';
 import {
-  applyInitialCameraPose,
   attachFramingBehavior,
-  bboxCentroid,
-  defaultBboxCameraPosition,
   frameCameraOnMesh,
 } from '../camera/framing';
 import { storeCameraPose } from '../camera/poseStorage';
@@ -20,7 +17,7 @@ import {
   syncOrbitPanToRadius,
   walkSpeedForDiagonal,
 } from '../camera/setupCameras';
-import { parseViewerSceneScale, modelFetchAbortSignal } from '../constants';
+import { MODEL_FETCH_TIMEOUT_MS, parseViewerSceneScale } from '../constants';
 import {
   computeRoomBounds,
   createCollisionProxyFromBounds,
@@ -35,6 +32,7 @@ import { addSceneOverlays, alignGridToFloor } from '../overlays/sceneOverlays';
 import { setupSceneLighting } from '../lighting/sceneLighting';
 import { showInspectorIfRequested, resetInspectorFlag } from '../dev/inspector';
 import { parseWalkPath } from '../walk/walkPath';
+import { viewerSceneKey } from '../load/viewerSceneKey';
 import { applySceneState } from '../controller/applySceneState';
 import { DEFAULT_INSPECTION } from '../inspection/inspectionControls';
 import type { BabylonViewerCtx, LoadPhase, ModelMetadata, StoredCameraPose } from '../types';
@@ -81,6 +79,11 @@ export function useMeshViewer({
   onMetadataRef.current = onModelMetadata;
   const onZoneLoadWarningRef = useRef(onZoneLoadWarning);
   onZoneLoadWarningRef.current = onZoneLoadWarning;
+  const sceneManifestRef = useRef(sceneManifest);
+  sceneManifestRef.current = sceneManifest;
+  const metadataPrefetchRef = useRef(prefetchedJobModelMetadata);
+  metadataPrefetchRef.current = prefetchedJobModelMetadata;
+  const loadKey = viewerSceneKey(modelUrl, sceneManifest, prefetchedJobModelMetadata);
 
   const [loadPhase, setLoadPhase] = useState<LoadPhase>('idle');
   const [loadProgress, setLoadProgress] = useState(0);
@@ -89,12 +92,16 @@ export function useMeshViewer({
   const [zoneMeshes, setZoneMeshes] = useState<import('../load/loadMeshScene').ZoneMeshHandle[]>([]);
 
   useEffect(() => {
+    const sceneManifest = sceneManifestRef.current;
+    const prefetchedJobModelMetadata = metadataPrefetchRef.current;
     const hasScene = isRoomManifest(sceneManifest);
     if (!canvasRef.current || (!modelUrl && !hasScene)) return;
 
     let disposed = false;
     let resizeObserver: ResizeObserver | undefined;
     const apiBase = getApiBaseUrl();
+    const loadAbort = new AbortController();
+    const timeoutId = window.setTimeout(() => loadAbort.abort(), MODEL_FETCH_TIMEOUT_MS);
 
     setLoadPhase('initializing');
     setLoadProgress(0);
@@ -169,11 +176,10 @@ export function useMeshViewer({
           setLoadLabel('Fetching 3D model…');
 
           const glbUrl = glbModelUrl(modelUrl!, apiBase);
-          const fetchSignal = modelFetchAbortSignal();
-          buffer = await fetchModelBuffer(glbUrl, fetchSignal, (pct) => {
+          buffer = await fetchModelBuffer(glbUrl, loadAbort.signal, (pct) => {
             if (!disposed) setLoadProgress(pct);
           });
-          if (disposed) return;
+          if (disposed || loadAbort.signal.aborted) return;
         } else {
           setLoadPhase('fetching');
           setLoadLabel('Loading room zones…');
@@ -200,18 +206,6 @@ export function useMeshViewer({
         metadataRef.current = modelMeta;
         onMetadataRef.current?.(modelMeta);
 
-        const prefetchedCentroid = bboxCentroid(
-          modelMeta.boundingBox.min,
-          modelMeta.boundingBox.max,
-        );
-        const diag = Math.sqrt(
-          (modelMeta.boundingBox.max[0] - modelMeta.boundingBox.min[0]) ** 2 +
-          (modelMeta.boundingBox.max[1] - modelMeta.boundingBox.min[1]) ** 2 +
-          (modelMeta.boundingBox.max[2] - modelMeta.boundingBox.min[2]) ** 2,
-        ) || 2;
-        const def = defaultBboxCameraPosition(diag, prefetchedCentroid);
-        applyInitialCameraPose(orbitCamera, def.position, def.lookAt, [0, 1, 0]);
-
         setLoadPhase('parsing');
         setLoadLabel(isComposed ? 'Loading room scene…' : 'Loading mesh…');
 
@@ -221,24 +215,29 @@ export function useMeshViewer({
         let zoneMeshes: import('../load/loadMeshScene').ZoneMeshHandle[] = [];
 
         if (isComposed && sceneManifest) {
-          const composed = await importComposedScene(scene, sceneManifest, apiBase);
+          const composed = await importComposedScene(scene, sceneManifest, apiBase, loadAbort.signal);
+          if (disposed || loadAbort.signal.aborted) return;
           rootMesh = composed.rootMesh;
           geometryMeshes = composed.geometryMeshes;
           shellMeshes = composed.shellMeshes;
           zoneMeshes = composed.zoneMeshes;
+          const notes: string[] = [];
+          if (composed.failedZoneIds.length > 0) {
+            notes.push(`Could not load zone ${composed.failedZoneIds.join(', ')}.`);
+          }
           if (composed.emptyZoneIds.length > 0) {
-            onZoneLoadWarningRef.current?.(
+            notes.push(
               `${composed.emptyZoneIds.length} zone(s) have no visible geometry (zone ${composed.emptyZoneIds.join(', ')}).`,
             );
-          } else {
-            onZoneLoadWarningRef.current?.(null);
           }
+          onZoneLoadWarningRef.current?.(notes.length > 0 ? notes.join(' ') : null);
           for (const mesh of geometryMeshes) {
             mesh.computeWorldMatrix(true);
             mesh.getBoundingInfo().update(mesh.getWorldMatrix());
           }
         } else {
           onZoneLoadWarningRef.current?.(null);
+          if (disposed || loadAbort.signal.aborted) return;
           const imported = await importGlbBuffer(scene, buffer!);
           rootMesh = imported.rootMesh;
           geometryMeshes = imported.geometryMeshes;
@@ -331,18 +330,25 @@ export function useMeshViewer({
         setLoadLabel('');
         void showInspectorIfRequested(scene);
       } catch (err: unknown) {
-        if (!disposed) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (isAxiosError(err) && isCancel(err)) return;
-          console.error('[Babylon] Mesh viewer error:', msg);
-          setError(msg);
+        if (disposed) return;
+        const aborted = (isAxiosError(err) && isCancel(err))
+          || (err instanceof DOMException && err.name === 'AbortError');
+        if (aborted) {
+          setError('Model download timed out. Try again.');
           setLoadPhase('error');
+          return;
         }
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[Babylon] Mesh viewer error:', msg);
+        setError(msg);
+        setLoadPhase('error');
       }
     })();
 
     return () => {
       disposed = true;
+      window.clearTimeout(timeoutId);
+      loadAbort.abort();
       initialPoseRef.current = null;
       sceneScaleRef.current = 1;
       resizeObserver?.disconnect();
@@ -357,7 +363,7 @@ export function useMeshViewer({
       setZoneMeshes([]);
       resetInspectorFlag();
     };
-  }, [modelUrl, prefetchedJobModelMetadata, sceneManifest, canvasRef]);
+  }, [loadKey, modelUrl, canvasRef]);
 
   return {
     viewerRef,

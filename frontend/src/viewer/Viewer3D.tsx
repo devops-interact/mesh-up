@@ -6,6 +6,7 @@ import { useMeshViewer } from './hooks/useMeshViewer';
 import { useViewerController } from './controller/useViewerController';
 import { isWebXRAvailable, tryCreateWebXRExperience, type WebXRHandle } from './xr/webXRExperience';
 import { downloadModel } from '@/api/jobs';
+import { canShowReconstruction } from '@/lib/canShowReconstruction';
 import { MeasurePanel } from './ui/MeasurePanel';
 import { ViewerToolbar, ViewerModeHint } from './ui/ViewerToolbar';
 import { InspectionPanel } from './ui/InspectionPanel';
@@ -142,7 +143,7 @@ export default function Viewer3D({
     }
   }, [viewerRef, webXrBusy]);
 
-  if (!modelUrl && !(sceneManifest?.zones?.length)) return null;
+  if (!canShowReconstruction({ modelUrl, sceneManifest })) return null;
 
   return (
     <div className="w-full h-full relative group bg-neutral-950 rounded-xl overflow-hidden">

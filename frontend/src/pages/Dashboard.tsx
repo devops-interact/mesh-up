@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listProjects, createProject, deleteProject, updateProject, Project } from '@/api/projects';
+import { saveErrorMessage } from '@/lib/saveErrorMessage';
 import { FolderOpen, Plus, Trash2, MoreVertical, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const loadProjects = async () => {
@@ -32,6 +34,24 @@ export default function Dashboard() {
   useEffect(() => {
     loadProjects();
   }, []);
+
+  useEffect(() => {
+    if (menuOpen == null) return;
+    const onPointer = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (target?.closest('[data-menu-root]')) return;
+      setMenuOpen(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(null);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,12 +83,14 @@ export default function Dashboard() {
   const startRename = (p: Project) => {
     setRenamingId(p.id);
     setRenameDraft(p.name);
+    setRenameError(null);
     setMenuOpen(null);
   };
 
   const cancelRename = () => {
     setRenamingId(null);
     setRenameDraft('');
+    setRenameError(null);
   };
 
   const handleRename = async (e: React.FormEvent, id: number) => {
@@ -77,12 +99,14 @@ export default function Dashboard() {
     const trimmed = renameDraft.trim();
     if (!trimmed || renaming) return;
     setRenaming(true);
+    setRenameError(null);
     try {
       const updated = await updateProject(id, { name: trimmed });
       setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
       cancelRename();
     } catch (err) {
       console.error(err);
+      setRenameError(saveErrorMessage(err));
     } finally {
       setRenaming(false);
     }
@@ -170,15 +194,17 @@ export default function Dashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="relative rounded-xl border border-white/[0.22] bg-neutral-950 p-4 hover:border-white/[0.38] transition-colors group"
+                className={`relative rounded-xl border border-white/[0.22] bg-neutral-950 p-4 hover:border-white/[0.38] transition-colors ${menuOpen === p.id ? 'z-30' : ''}`}
               >
                 <div className="flex items-start justify-between mb-2">
                   <FolderOpen className="w-8 h-8 text-white/50" />
                   <button
                     type="button"
+                    data-menu-root=""
                     onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === p.id ? null : p.id); }}
-                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] text-gray-400"
+                    className="p-1 rounded text-gray-400 hover:bg-white/[0.06] hover:text-white"
                     aria-label="Project options"
+                    aria-expanded={menuOpen === p.id}
                   >
                     <MoreVertical className="w-4 h-4" />
                   </button>
@@ -209,6 +235,9 @@ export default function Dashboard() {
                         Cancel
                       </button>
                     </div>
+                    {renameError && (
+                      <p className="text-red-400 text-xs">{renameError}</p>
+                    )}
                   </form>
                 ) : (
                   <button
@@ -223,10 +252,10 @@ export default function Dashboard() {
                   </button>
                 )}
                 {menuOpen === p.id && (
-                  <div className="absolute right-2 top-12 z-10 rounded-lg bg-neutral-950 border border-white/[0.22] shadow-xl py-1 min-w-[120px]">
+                  <div data-menu-root="" className="absolute right-2 top-12 z-30 rounded-lg bg-neutral-950 border border-white/[0.22] shadow-xl py-1 min-w-[120px]">
                     <button
                       type="button"
-                      onClick={() => startRename(p)}
+                      onClick={(e) => { e.stopPropagation(); startRename(p); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-gray-300 hover:bg-white/[0.06] text-sm"
                     >
                       <Pencil className="w-3 h-3" />
@@ -234,7 +263,7 @@ export default function Dashboard() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDelete(p.id)}
+                      onClick={(e) => { e.stopPropagation(); void handleDelete(p.id); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-500/10 text-sm"
                     >
                       <Trash2 className="w-3 h-3" />

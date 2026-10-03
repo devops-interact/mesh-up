@@ -21,13 +21,6 @@ export const VIEWER_SCENE_SCALE_MAX = 10;
 
 export const AUTO_ROTATE_ALPHA_SPEED = 0.002;
 
-export function modelFetchAbortSignal(): AbortSignal | undefined {
-  if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal && typeof AbortSignal.timeout === 'function') {
-    return AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS);
-  }
-  return undefined;
-}
-
 import { getSceneScale } from '@/lib/viewerSettings';
 
 export function parseViewerSceneScale(): number {

@@ -8,11 +8,28 @@ import { importedHierarchyRoot } from '../transform/modelTransform';
 
 const MODEL_FETCH_TIMEOUT_MS = 120_000;
 
-export async function fetchModelBuffer(
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+}
+
+/** Network failures and 5xx responses are worth one retry. Aborts are not. */
+export function isTransientModelFetchError(err: unknown): boolean {
+  if (isCancel(err)) return false;
+  if (err instanceof DOMException && err.name === 'AbortError') return false;
+  if (!axios.isAxiosError(err)) return false;
+  const status = err.response?.status;
+  if (status == null) return true;
+  return status >= 500;
+}
+
+async function requestModelBuffer(
   url: string,
   signal?: AbortSignal,
   onProgress?: (pct: number) => void,
 ): Promise<ArrayBuffer> {
+  throwIfAborted(signal);
   const resp = await axios.get<ArrayBuffer>(url, {
     responseType: 'arraybuffer',
     timeout: MODEL_FETCH_TIMEOUT_MS,
@@ -25,6 +42,19 @@ export async function fetchModelBuffer(
     },
   });
   return resp.data;
+}
+
+export async function fetchModelBuffer(
+  url: string,
+  signal?: AbortSignal,
+  onProgress?: (pct: number) => void,
+): Promise<ArrayBuffer> {
+  try {
+    return await requestModelBuffer(url, signal, onProgress);
+  } catch (err) {
+    if (signal?.aborted || !isTransientModelFetchError(err)) throw err;
+    return await requestModelBuffer(url, signal, onProgress);
+  }
 }
 
 export async function importGlbBuffer(
@@ -195,8 +225,11 @@ async function loadRoomShell(
   shellUrl: string,
   apiBase: string,
   shellTextured: boolean = false,
+  signal?: AbortSignal,
 ): Promise<AbstractMesh[]> {
-  const shellBuf = await fetchModelBuffer(glbModelUrl(shellUrl, apiBase));
+  throwIfAborted(signal);
+  const shellBuf = await fetchModelBuffer(glbModelUrl(shellUrl, apiBase), signal);
+  throwIfAborted(signal);
   const shellNode = new (await import('@babylonjs/core')).TransformNode('room_shell_root', scene);
   shellNode.parent = roomRoot;
   const { allMeshes: shellMeshes } = await importGlbBuffer(scene, shellBuf, 'room_shell');
@@ -239,35 +272,58 @@ export async function importComposedScene(
   scene: Scene,
   manifest: import('@/types/job').SceneManifestResponse,
   apiBase: string,
+  signal?: AbortSignal,
 ): Promise<{
   rootMesh: AbstractMesh;
   geometryMeshes: AbstractMesh[];
   shellMeshes: AbstractMesh[];
   zoneMeshes: ZoneMeshHandle[];
   emptyZoneIds: number[];
+  failedZoneIds: number[];
 }> {
   const { TransformNode } = await import('@babylonjs/core');
   const roomRoot = new TransformNode('room_root', scene);
   const allGeometry: AbstractMesh[] = [];
   const zoneMeshes: ZoneMeshHandle[] = [];
   const emptyZoneIds: number[] = [];
+  const failedZoneIds: number[] = [];
   let loaded = 0;
 
-  for (const zone of manifest.zones) {
+  for (const zone of manifest.zones ?? []) {
+    throwIfAborted(signal);
     const url = glbModelUrl(zone.mesh_url, apiBase);
     let buffer: ArrayBuffer;
     try {
-      buffer = await fetchModelBuffer(url);
+      buffer = await fetchModelBuffer(url, signal);
     } catch (e) {
+      if (signal?.aborted || isCancel(e) || (e instanceof DOMException && e.name === 'AbortError')) {
+        throw e;
+      }
       const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(`Failed to load zone ${zone.id}: ${msg}`);
+      failedZoneIds.push(zone.id);
+      console.warn(`[Babylon] Zone ${zone.id} failed to load: ${msg}`);
+      continue;
     }
 
+    throwIfAborted(signal);
     const zoneNode = new TransformNode(`zone_${zone.id}_root`, scene);
     zoneNode.parent = roomRoot;
     applyTransformToNode(zoneNode, zone.transform);
 
-    const { allMeshes, geometryMeshes } = await importGlbBuffer(scene, buffer, `zone_${zone.id}`);
+    let allMeshes: AbstractMesh[];
+    let geometryMeshes: AbstractMesh[];
+    try {
+      const imported = await importGlbBuffer(scene, buffer, `zone_${zone.id}`);
+      allMeshes = imported.allMeshes;
+      geometryMeshes = imported.geometryMeshes;
+    } catch (e) {
+      if (signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      failedZoneIds.push(zone.id);
+      zoneNode.dispose();
+      console.warn(`[Babylon] Zone ${zone.id} failed to import: ${msg}`);
+      continue;
+    }
     for (const mesh of allMeshes) {
       mesh.parent = zoneNode;
       if (mesh.getTotalVertices() > 0) {
@@ -305,14 +361,19 @@ export async function importComposedScene(
         manifest.shell_url,
         apiBase,
         manifest.shell_textured ?? false,
+        signal,
       );
     } catch (e) {
+      if (signal?.aborted || isCancel(e) || (e instanceof DOMException && e.name === 'AbortError')) {
+        throw e;
+      }
       console.warn('[Babylon] Room shell load failed:', e);
     }
   }
 
   if (loaded === 0 && shellGeometry.length === 0) {
-    throw new Error('Scene manifest has no loadable geometry (shell or zones)');
+    const failed = failedZoneIds.length > 0 ? ` (zones ${failedZoneIds.join(', ')} failed)` : '';
+    throw new Error(`Scene manifest has no loadable geometry (shell or zones)${failed}`);
   }
 
   if (emptyZoneIds.length > 0) {
@@ -329,5 +390,6 @@ export async function importComposedScene(
     shellMeshes: shellGeometry,
     zoneMeshes,
     emptyZoneIds,
+    failedZoneIds,
   };
 }

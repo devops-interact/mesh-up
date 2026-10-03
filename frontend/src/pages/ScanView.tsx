@@ -10,20 +10,26 @@ import KeyframeStrip from '@/components/KeyframeStrip';
 import type { ModelMetadata } from '@/components/Viewer3D';
 import type { ModelMetadataResponse, KeyframeInfo, SceneManifestResponse } from '@/types/job';
 import { Card, CardContent } from '@/components/ui/card';
-import { Box, Download, ChevronDown, FileBox, FileCode, ArrowLeft } from 'lucide-react';
+import { Box, Download, ChevronDown, FileBox, FileCode, ArrowLeft, Pencil } from 'lucide-react';
 import { downloadModel, getJobStatus, getSceneManifest } from '@/api/jobs';
-import { getScan } from '@/api/scans';
+import { getScan, updateScan } from '@/api/scans';
 import { JobStatus as JobStatusEnum } from '@/types/job';
 import { getApiBaseUrl } from '@/lib/apiBase';
+import { canShowReconstruction } from '@/lib/canShowReconstruction';
+import { saveErrorMessage } from '@/lib/saveErrorMessage';
 import { isRoomManifest } from '@/viewer/load/loadMeshScene';
 
 export default function ScanView() {
   const { projectId, scanId } = useParams<{ projectId: string; scanId: string }>();
   const navigate = useNavigate();
   const projectIdNum = projectId ? parseInt(projectId, 10) : 0;
-  const isNewScan = scanId === 'new';
+  const isNewScan = !scanId || scanId === 'new';
 
-  const [scan, setScan] = useState<{ id: number; job_id: string | null } | null>(null);
+  const [scan, setScan] = useState<{ id: number; job_id: string | null; name: string } | null>(null);
+  const [editingScanName, setEditingScanName] = useState(false);
+  const [scanNameDraft, setScanNameDraft] = useState('');
+  const [savingScanName, setSavingScanName] = useState(false);
+  const [scanNameError, setScanNameError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
   const [objUrl, setObjUrl] = useState<string | null>(null);
@@ -62,12 +68,14 @@ export default function ScanView() {
       setScan(null);
       setJobId(null);
       setJobQualityPreset(null);
+      setEditingScanName(false);
+      setScanNameError(null);
       return;
     }
     const sid = parseInt(scanId!, 10);
     getScan(projectIdNum, sid)
       .then((s) => {
-        setScan(s);
+        setScan({ id: s.id, job_id: s.job_id, name: s.name || '' });
         setJobId(s.job_id || null);
       })
       .catch(() => setScan(null));
@@ -75,12 +83,18 @@ export default function ScanView() {
 
   // Hydrate viewer for completed jobs on page reload
   useEffect(() => {
-    if (!jobId || modelUrl || isRoomManifest(sceneManifest)) return;
+    if (!jobId || canShowReconstruction({ modelUrl, sceneManifest })) return;
     let cancelled = false;
     getJobStatus(jobId)
       .then(async (response) => {
         if (cancelled) return;
-        if (response.status === JobStatusEnum.COMPLETED && (response.model_url || isRoomManifest(response.scene_manifest))) {
+        if (
+          response.status === JobStatusEnum.COMPLETED &&
+          canShowReconstruction({
+            modelUrl: response.model_url,
+            sceneManifest: response.scene_manifest,
+          })
+        ) {
           const manifest = await resolveSceneManifest(
             response.scene_manifest,
             response.total_zones,
@@ -195,10 +209,49 @@ export default function ScanView() {
     setProcessingTimeSeconds(null);
     setMeshyTaskId(null);
     if (scanIdFromResponse && isNewScan && projectId) {
-      setScan({ id: scanIdFromResponse, job_id: newJobId });
+      setScan({ id: scanIdFromResponse, job_id: newJobId, name: '' });
       navigate(`/projects/${projectId}/scans/${scanIdFromResponse}`, { replace: true });
     }
   };
+
+  const scanTitle = scan
+    ? (scan.name.trim() || `Scan ${scan.id}`)
+    : (isNewScan ? 'New scan' : '3D Reconstruction');
+
+  const startEditScanName = () => {
+    if (!scan) return;
+    setScanNameDraft(scan.name.trim() || `Scan ${scan.id}`);
+    setScanNameError(null);
+    setEditingScanName(true);
+  };
+
+  const cancelEditScanName = () => {
+    setEditingScanName(false);
+    setScanNameDraft('');
+    setScanNameError(null);
+  };
+
+  const saveScanName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scan || !projectIdNum) return;
+    const trimmed = scanNameDraft.trim();
+    if (!trimmed || savingScanName) return;
+    setSavingScanName(true);
+    setScanNameError(null);
+    try {
+      const updated = await updateScan(projectIdNum, scan.id, { name: trimmed });
+      setScan({ id: updated.id, job_id: updated.job_id, name: updated.name || '' });
+      cancelEditScanName();
+    } catch (err) {
+      console.error(err);
+      setScanNameError(saveErrorMessage(err));
+    } finally {
+      setSavingScanName(false);
+    }
+  };
+
+  const viewerSlotClass =
+    'h-[min(520px,calc(100vh-220px))] lg:h-[calc(100vh-220px)] lg:min-h-[420px]';
 
   return (
     <div className="space-y-4">
@@ -210,10 +263,49 @@ export default function ScanView() {
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-white mb-1">
-              3D Reconstruction
-            </h2>
+          <div className="min-w-0">
+            {editingScanName && scan ? (
+              <form onSubmit={saveScanName} className="flex flex-wrap items-center gap-2 mb-1">
+                <input
+                  type="text"
+                  value={scanNameDraft}
+                  onChange={(e) => setScanNameDraft(e.target.value)}
+                  className="flex-1 min-w-[180px] px-3 py-1.5 rounded-lg bg-neutral-950 border border-white/[0.22] text-white text-sm focus:border-white/50 outline-none"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  disabled={!scanNameDraft.trim() || savingScanName}
+                  className="px-3 py-1.5 rounded-lg bg-white text-black text-xs font-medium disabled:opacity-50"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEditScanName}
+                  className="px-3 py-1.5 rounded-lg border border-white/[0.22] text-gray-400 text-xs hover:text-white"
+                >
+                  Cancel
+                </button>
+                {scanNameError && (
+                  <p className="w-full text-red-400 text-xs">{scanNameError}</p>
+                )}
+              </form>
+            ) : (
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-xl font-bold tracking-tight text-white truncate">{scanTitle}</h2>
+                {scan && (
+                  <button
+                    type="button"
+                    onClick={startEditScanName}
+                    className="p-1.5 rounded-lg border border-transparent hover:border-white/[0.22] hover:bg-white/[0.04] text-gray-500 hover:text-white transition-colors"
+                    aria-label="Rename scan"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
             <p className="text-gray-600 text-sm max-w-2xl">
               Upload a video to reconstruct a measurable 3D mesh.
             </p>
@@ -319,8 +411,8 @@ export default function ScanView() {
 
       <div className="flex flex-col lg:flex-row gap-4 lg:items-start">
         <div className="w-full lg:w-2/3 flex-shrink-0">
-          {modelUrl || isRoomManifest(sceneManifest) ? (
-            <div className="rounded-xl overflow-hidden border border-white/[0.26] bg-neutral-950 h-[400px] sm:h-[520px] lg:h-[calc(100vh-160px)] shadow-2xl shadow-white/[0.03]">
+          {canShowReconstruction({ modelUrl, sceneManifest }) ? (
+            <div className={`rounded-xl overflow-hidden border border-white/[0.26] bg-neutral-950 ${viewerSlotClass} shadow-2xl shadow-white/[0.03]`}>
               <Viewer3D
                 modelUrl={modelUrl}
                 jobId={jobId}
@@ -331,7 +423,7 @@ export default function ScanView() {
               />
             </div>
           ) : (
-            <Card className="h-[300px] sm:h-[400px] lg:h-[calc(100vh-160px)] flex items-center justify-center border-dashed border-2 border-white/[0.22] bg-neutral-950">
+            <Card className={`${viewerSlotClass} flex items-center justify-center border-dashed border-2 border-white/[0.22] bg-neutral-950`}>
               <CardContent className="text-center text-gray-600">
                 <div className="w-16 h-16 rounded-2xl bg-neutral-950/50 flex items-center justify-center mx-auto mb-4 border border-white/[0.18]">
                   <Box className="w-8 h-8 text-gray-700" />
@@ -383,7 +475,7 @@ export default function ScanView() {
               jobInfo={{
                 qualityPreset: jobQualityPreset ?? undefined,
                 elapsedTime,
-                isProcessing: !!jobId && modelUrl === null && !isRoomManifest(sceneManifest),
+                isProcessing: !!jobId && !canShowReconstruction({ modelUrl, sceneManifest }),
                 meshyTaskId: meshyTaskId ?? prefetchedJobModelMetadata?.meshy_task_id,
                 thumbnailUrl: prefetchedJobModelMetadata?.thumbnail_url,
                 processingTimeSeconds: processingTimeSeconds ?? undefined,

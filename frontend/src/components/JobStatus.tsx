@@ -3,6 +3,7 @@ import axios from 'axios';
 import { JobStatus as JobStatusEnum, JobStatusResponse, type ModelMetadataResponse } from '../types/job';
 import { getJobStatus } from '../api/jobs';
 import { getApiBaseUrl } from '@/lib/apiBase';
+import { canShowReconstruction } from '@/lib/canShowReconstruction';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Loader2, CheckCircle, AlertOctagon, AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -172,7 +173,10 @@ export default function JobStatus({ jobId, onComplete, onQualityPresetChange, on
           }
           if (
             response.status === JobStatusEnum.COMPLETED &&
-            (response.model_url || (response.scene_manifest?.zones?.length ?? 0) > 0)
+            canShowReconstruction({
+              modelUrl: response.model_url,
+              sceneManifest: response.scene_manifest,
+            })
           ) {
             if (completionNotifiedForJobIdRef.current !== jobId) {
               completionNotifiedForJobIdRef.current = jobId;
